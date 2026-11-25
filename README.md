@@ -30,6 +30,52 @@
 
 ---
 
+## 🧑‍💻 Author Competencies
+
+This project showcases expertise across the full stack of modern software engineering and AI automation:
+
+### Languages & Frameworks
+- **JavaScript / Node.js** (ES modules, async/await, fetch, child processes)
+- **Python** (scraping, data processing, API integration)
+- **YAML / JSON** (configuration, data persistence)
+- **HTML/CSS** (dashboard UI, single-page applications)
+
+### AI & Machine Learning
+- **LLM Integration** (Kilo Gateway, OpenAI-compatible APIs, prompt engineering)
+- **AI Agent Architecture** (autonomous agents, task routing, multi-model orchestration)
+- **Natural Language Processing** (proposal generation, message classification, intent detection)
+
+### Browser Automation & Scraping
+- **Playwright** (persistent contexts, extension loading, headless/headed modes)
+- **Web Scraping** (Cheerio, RSS feeds, HTML parsing, entity decoding)
+- **CAPTCHA Solving** (NopeCHA integration, fallback strategies)
+- **Anti-detection** (persistent profiles, human-like delays)
+
+### System Design & Architecture
+- **Daemon/Scheduling** (node-schedule, cron, graceful shutdown)
+- **Pipeline State Machine** (DISCOVERED → PAID lifecycle tracking)
+- **Notification Systems** (Discord webhooks, Telegram Bot API)
+- **REST API Consumption** (Kilo, Twitter, Freelancer, Django jobs RSS)
+
+### DevOps & Production
+- **Testing** (node:test, 47+ regression tests, mocking)
+- **Health Checks** (production readiness validation)
+- **Retry/Backoff** (exponential backoff, rate limit handling)
+- **Environment Management** (.env loading, config persistence)
+- **Graceful Degradation** (fallback strategies, clipboard+URL)
+
+### Platforms Supported
+| Platform | Type | Scanner | Auto-Submit | Auth |
+|----------|------|---------|-------------|------|
+| Upwork | Freelance marketplace | ✅ Web scraping | ✅ Playwright | Auto + Manual |
+| Freelancer.com | Freelance marketplace | ✅ Public API | ✅ Playwright | Auto + Manual |
+| Twitter/X | Social media | ✅ Search API | ✅ Playwright DM | Auto + Manual |
+| Hacker News | Tech community | ✅ RSS + filtering | ✅ Playwright comment | Auto + Manual |
+| Fiverr | Freelance marketplace | ✅ Demand signals | ✅ Playwright message | Auto + Manual |
+| Django Community | Job board | ✅ RSS feed | Clipboard + URL | No auth needed |
+
+---
+
 ```
 $ hustlebot scan
 
@@ -146,6 +192,7 @@ hustlebot dashboard
 | `hustlebot auth twitter` (or `x`) | Set up browser session for Twitter/X DM automation |
 | `hustlebot auth hackernews` (or `hn`) | Set up browser session for Hacker News comments |
 | `hustlebot auth fiverr` | Set up browser session for Fiverr messages |
+| `hustlebot auth django` | No auth needed (public RSS feed) |
 | `hustlebot health` | Check production readiness (API keys, browser, extensions) |
 
 ---
@@ -161,6 +208,7 @@ hustlebot dashboard
 - **Fiverr** — demand signal detection from marketplace
 - **Twitter/X** — finds people asking for help with your skills
 - **HackerNews** — "Who's Hiring" threads + freelance posts
+- **Django Community Jobs** — RSS feed from djangojobboard.com and builtwithdjango.com
 
 Each gig gets an AI score (0-100%) based on your skills, rate, and availability.
 
