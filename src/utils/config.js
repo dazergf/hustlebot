@@ -4,7 +4,7 @@ import { join } from 'path';
 import { homedir } from 'os';
 import YAML from 'yaml';
 
-const HUSTLEBOT_DIR = join(homedir(), '.hustlebot');
+const HUSTLEBOT_DIR = process.env.HUSTLEBOT_DIR || join(homedir(), '.hustlebot');
 
 // Simple .env loader (no dependency)
 function loadDotenv() {

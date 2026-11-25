@@ -5,7 +5,9 @@ import os from 'os';
 import { getConfigDir } from '../utils/config.js';
 
 const EXTENSION_DIR = path.join(process.cwd(), 'extensions', 'nopecha');
-const PROFILE_DIR = path.join(getConfigDir(), 'browser-profile');
+const PROFILE_DIR = process.env.HUSTLEBOT_DIR
+  ? path.join(process.env.HUSTLEBOT_DIR, 'browser-profile')
+  : path.join(getConfigDir(), 'browser-profile');
 
 /**
  * Launch a persistent Chromium context with NopeCHA extension loaded.

@@ -25,6 +25,27 @@ Nothing groundbreaking — just adapted it to fit my needs and automated a few m
 
 ---
 
+## 🐳 Docker Deployment
+
+```bash
+# Build and run
+docker compose up -d
+
+# View logs
+docker compose logs -f
+
+# Health check
+docker compose exec hustlebot node src/index.js health
+
+# Auth a platform (interactive)
+docker compose exec hustlebot node src/index.js auth upwork
+
+# Stop
+docker compose down
+```
+
+Volumes persist data across restarts. Set your `.env` before starting.
+
 ## 📋 What's Inside
 
 - **6 platform scanners** (Upwork, Freelancer, Twitter/X, Hacker News, Fiverr, Django Community Jobs)

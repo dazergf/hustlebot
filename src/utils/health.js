@@ -4,7 +4,8 @@ import { join } from 'path';
 import { homedir } from 'os';
 import { log, warn } from './logger.js';
 
-const PROFILE_DIR = join(homedir(), '.hustlebot', 'browser-profile');
+const HUSTLEBOT_DIR = process.env.HUSTLEBOT_DIR || join(homedir(), '.hustlebot');
+const PROFILE_DIR = join(HUSTLEBOT_DIR, 'browser-profile');
 
 /**
  * Validate configuration and environment for autonomous production.
