@@ -1,4 +1,4 @@
-import { getPage, takeScreenshot, isLoggedIn } from './chrome.js';
+import { launchBrowser, takeScreenshot, isLoggedIn } from './playwright-manager.js';
 import { log, error as logError } from '../utils/logger.js';
 import { notify } from '../notifications/notify.js';
 import { readFileSync, writeFileSync, existsSync } from 'fs';
@@ -21,13 +21,20 @@ function saveMessages(msgs) {
  * Returns array of { from, subject, preview, url, timestamp, isNew }
  */
 export async function checkUpworkMessages() {
+  let context = null;
   let page = null;
   try {
-    page = await getPage(null);
-    const loggedIn = await isLoggedIn(page, 'upwork');
-    if (!loggedIn) return [];
+    const launched = await launchBrowser({ headless: false });
+    context = launched.context;
+    page = launched.page;
 
-    await page.goto('https://www.upwork.com/ab/messages', { waitUntil: 'networkidle2', timeout: 20000 });
+    const loggedIn = await isLoggedIn(page, 'upwork');
+    if (!loggedIn) {
+      await context.close();
+      return [];
+    }
+
+    await page.goto('https://www.upwork.com/ab/messages', { waitUntil: 'domcontentloaded', timeout: 20000 });
     await new Promise(r => setTimeout(r, 3000));
 
     // Extract message threads
@@ -56,7 +63,7 @@ export async function checkUpworkMessages() {
       return results.slice(0, 20);
     });
 
-    await page.close();
+    await context.close();
 
     // Check for truly new messages
     const existing = loadMessages();
@@ -80,7 +87,7 @@ export async function checkUpworkMessages() {
 
   } catch (err) {
     logError(`[MESSAGES] Error checking Upwork messages: ${err.message}`);
-    if (page) try { await page.close(); } catch {}
+    if (context) try { await context.close(); } catch {}
     return [];
   }
 }
@@ -89,9 +96,14 @@ export async function checkUpworkMessages() {
  * Send a reply to a specific Upwork message thread.
  */
 export async function replyUpworkMessage(threadUrl, replyText) {
+  let context = null;
   let page = null;
   try {
-    page = await getPage(threadUrl);
+    const launched = await launchBrowser({ headless: false });
+    context = launched.context;
+    page = launched.page;
+
+    await page.goto(threadUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
     await new Promise(r => setTimeout(r, 2000));
 
     // Find message input
@@ -127,13 +139,13 @@ export async function replyUpworkMessage(threadUrl, replyText) {
 
     await new Promise(r => setTimeout(r, 2000));
     const screenshot = await takeScreenshot(page, 'upwork-reply');
-    await page.close();
+    await context.close();
 
     return { success: sent, screenshotPath: screenshot };
 
   } catch (err) {
     logError(`[MESSAGES] Reply error: ${err.message}`);
-    if (page) try { await page.close(); } catch {}
+    if (context) try { await context.close(); } catch {}
     return { success: false, error: err.message };
   }
 }

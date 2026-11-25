@@ -6,6 +6,27 @@ import YAML from 'yaml';
 
 const HUSTLEBOT_DIR = join(homedir(), '.hustlebot');
 
+// Simple .env loader (no dependency)
+function loadDotenv() {
+  const envPath = join(process.cwd(), '.env');
+  if (!existsSync(envPath)) return;
+  try {
+    const content = readFileSync(envPath, 'utf-8');
+    for (const line of content.split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const eq = trimmed.indexOf('=');
+      if (eq === -1) continue;
+      const key = trimmed.substring(0, eq).trim();
+      const val = trimmed.substring(eq + 1).trim();
+      if (key && !process.env[key]) {
+        process.env[key] = val;
+      }
+    }
+  } catch {}
+}
+loadDotenv();
+
 export function getConfigDir() {
   return HUSTLEBOT_DIR;
 }
@@ -94,11 +115,19 @@ export function saveProjects(projects) {
 }
 
 export function getApiKey() {
-  return store.get('apiKey') || process.env.ANTHROPIC_API_KEY;
+  return store.get('apiKey') || process.env.ANTHROPIC_API_KEY || getKiloApiKey();
 }
 
 export function setApiKey(key) {
   store.set('apiKey', key);
+}
+
+export function getKiloApiKey() {
+  return store.get('kiloApiKey') || process.env.KILO_API_KEY;
+}
+
+export function setKiloApiKey(key) {
+  store.set('kiloApiKey', key);
 }
 
 export { HUSTLEBOT_DIR, PROFILE_PATH, store };

@@ -22,6 +22,19 @@ const FULL_TIME_SIGNALS = [
   'stock options', 'pto',
 ];
 
+function decodeHtmlEntities(text) {
+  return text
+    .replace(/&#x27;/gi, "'")
+    .replace(/&#39;/g, "'")
+    .replace(/&apos;/gi, "'")
+    .replace(/&quot;/gi, '"')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(parseInt(code, 10)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, code) => String.fromCharCode(parseInt(code, 16)));
+}
+
 const FREELANCE_SIGNALS = [
   'freelance', 'contract', 'contractor', 'consulting',
   'part-time', 'part time', 'parttime',
@@ -96,21 +109,39 @@ async function scanFreelancerThreads(keywords) {
 
       for (const comment of (threadData.hits || [])) {
         const text = comment.comment_text || '';
-        const cleanText = text.replace(/<[^>]*>/g, ' ').replace(/&[#\w]+;/g, ' ').replace(/\s+/g, ' ').trim();
+        const cleanText = text.replace(/<[^>]*>/g, ' ').replace(/&[#\w]+;/g, (m) => decodeHtmlEntities(m)).replace(/\s+/g, ' ').trim();
         const textLower = cleanText.toLowerCase();
 
         // Must match at least one keyword
         const matchedKeyword = keywords.find(kw => textLower.includes(kw.toLowerCase()));
         if (!matchedKeyword || cleanText.length < 50) continue;
 
-        // Check if this is a "SEEKING FREELANCER" post (someone hiring) vs "FREELANCER" post (someone offering services)
-        const isSeeking = textLower.includes('seeking freelancer') ||
-          textLower.includes('looking for') ||
-          textLower.includes('need help') ||
-          textLower.includes('hiring') ||
-          textLower.includes('project:');
+        // Only accept posts where someone is HIRING a freelancer (not a freelancer offering services)
+        const isOfferingServices = textLower.includes('seeking work') ||
+          textLower.includes('seeking freelance') ||
+          textLower.includes('available for') ||
+          textLower.includes("i'm a ") ||
+          textLower.includes("i am a ") ||
+          textLower.includes("i'm an ") ||
+          textLower.includes("i am an ") ||
+          textLower.includes('my portfolio') ||
+          textLower.includes('my github') ||
+          textLower.includes('open to opportunities') ||
+          textLower.includes('open to work') ||
+          textLower.startsWith('seeking ') ||
+          textLower.startsWith('freelancer |') ||
+          textLower.startsWith('freelancer:');
 
-        if (isSeeking) {
+        const isHiring = !isOfferingServices && (
+          textLower.includes('seeking freelancer') ||
+          textLower.includes('hiring') ||
+          textLower.includes('looking for a') ||
+          textLower.includes('need help') ||
+          textLower.includes('project:') ||
+          textLower.includes('contract:')
+        );
+
+        if (isHiring) {
           jobs.push({
             id: `hn-freelance-${comment.objectID}`,
             platform: 'hackernews',
@@ -154,7 +185,7 @@ async function scanAskHN(keywords) {
 
       for (const post of (askData.hits || [])) {
         if (post.title && post.num_comments > 0) {
-          const storyText = (post.story_text || '').replace(/<[^>]*>/g, ' ').replace(/&[#\w]+;/g, ' ').trim();
+          const storyText = (post.story_text || '').replace(/<[^>]*>/g, ' ').replace(/&[#\w]+;/g, (m) => decodeHtmlEntities(m)).trim();
 
           jobs.push({
             id: `hn-ask-${post.objectID}`,
@@ -207,12 +238,29 @@ async function scanWhoIsHiring(keywords) {
 
       for (const comment of (threadData.hits || [])) {
         const text = comment.comment_text || '';
-        const cleanText = text.replace(/<[^>]*>/g, ' ').replace(/&[#\w]+;/g, ' ').replace(/\s+/g, ' ').trim();
+        const cleanText = text.replace(/<[^>]*>/g, ' ').replace(/&[#\w]+;/g, (m) => decodeHtmlEntities(m)).replace(/\s+/g, ' ').trim();
         const textLower = cleanText.toLowerCase();
 
         // Must match at least one keyword
         const matchedKeyword = keywords.find(kw => textLower.includes(kw.toLowerCase()));
         if (!matchedKeyword || cleanText.length < 50) continue;
+
+        // Skip freelancers offering their services (not gigs)
+        const isOfferingServices = textLower.includes('seeking work') ||
+          textLower.includes('seeking freelance') ||
+          textLower.includes('available for') ||
+          textLower.includes("i'm a ") ||
+          textLower.includes("i am a ") ||
+          textLower.includes("i'm an ") ||
+          textLower.includes("i am an ") ||
+          textLower.includes('my portfolio') ||
+          textLower.includes('my github') ||
+          textLower.includes('open to opportunities') ||
+          textLower.includes('open to work') ||
+          textLower.startsWith('seeking ') ||
+          textLower.startsWith('freelancer |') ||
+          textLower.startsWith('freelancer:');
+        if (isOfferingServices) continue;
 
         // FILTER: Must have freelance signals AND must NOT be purely full-time
         const hasFreelanceSignal = FREELANCE_SIGNALS.some(s => textLower.includes(s));

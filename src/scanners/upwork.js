@@ -196,16 +196,13 @@ async function tryUpworkFetch(keyword) {
  */
 async function tryUpworkPuppeteer(keyword) {
   try {
-    const { getOrLaunchBrowser } = await import('../browser/chrome.js');
-    const browser = await getOrLaunchBrowser();
-    if (!browser) return [];
-
-    const page = await browser.newPage();
-    await page.setViewport({ width: 1280, height: 900 });
+    const { launchBrowser } = await import('../browser/playwright-manager.js');
+    const { context, page } = await launchBrowser({ headless: true });
+    if (!page) return [];
 
     const query = encodeURIComponent(keyword);
     await page.goto(`${UPWORK_SEARCH_URL}?q=${query}&sort=recency`, {
-      waitUntil: 'networkidle2',
+      waitUntil: 'domcontentloaded',
       timeout: 20000,
     });
 
@@ -244,7 +241,7 @@ async function tryUpworkPuppeteer(keyword) {
       return results;
     }, keyword);
 
-    await page.close();
+    await context.close();
 
     return jobs.map((job, i) => ({
       id: `upwork-browser-${Date.now()}-${i}`,

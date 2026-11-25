@@ -1,30 +1,14 @@
-import Anthropic from '@anthropic-ai/sdk';
-import { getApiKey } from '../utils/config.js';
+import { kiloChat, extractJson } from './kilo-client.js';
 
-let client = null;
-
-function getClient() {
-  if (!client) {
-    const apiKey = getApiKey();
-    if (!apiKey) throw new Error('No Anthropic API key found.');
-    client = new Anthropic({ apiKey });
-  }
-  return client;
-}
-
-/**
- * Classify a client message and decide how to handle it.
- * Returns { intent, urgency, autoReplyOk, suggestedReply, escalate }
- */
 export async function classifyMessage(message, gigContext) {
-  const claude = getClient();
-
-  const response = await claude.messages.create({
-    model: 'claude-sonnet-4-20250514',
-    max_tokens: 500,
-    messages: [{
+  const { content } = await kiloChat([
+    {
+      role: 'system',
+      content: 'You manage freelance client communications. Respond ONLY in JSON.',
+    },
+    {
       role: 'user',
-      content: `You are an AI assistant managing freelance client communications. Classify this message and decide the best action.
+      content: `Classify this message and decide the best action.
 
 CLIENT MESSAGE:
 "${message.from}: ${message.preview}"
@@ -40,29 +24,24 @@ Respond ONLY in JSON:
   "suggestedReply": "<draft reply if autoReplyOk is true, or suggested reply for human review>",
   "escalate": true | false,
   "reason": "<why you made this decision>"
-}`
-    }]
-  });
+}`,
+    },
+  ], { task: 'classify', temperature: 0.2, max_tokens: 500 });
 
   try {
-    const text = response.content[0].text.trim();
-    const match = text.match(/\{[\s\S]*\}/);
-    if (match) return JSON.parse(match[0]);
+    const parsed = extractJson(content);
+    if (parsed) return parsed;
   } catch {}
-
   return { intent: 'other', urgency: 'medium', autoReplyOk: false, suggestedReply: '', escalate: true, reason: 'Could not classify' };
 }
 
-/**
- * Generate a professional reply to a client message.
- */
 export async function generateClientReply(message, gigContext, profile) {
-  const claude = getClient();
-
-  const response = await claude.messages.create({
-    model: 'claude-sonnet-4-20250514',
-    max_tokens: 500,
-    messages: [{
+  const { content } = await kiloChat([
+    {
+      role: 'system',
+      content: 'You are a freelancer responding to a client message. Output ONLY the reply text.',
+    },
+    {
       role: 'user',
       content: `You are ${profile?.name || 'a freelancer'} responding to a client message on a freelance platform.
 
@@ -70,6 +49,8 @@ YOUR PROFILE:
 - Name: ${profile?.name || 'Freelancer'}
 - Title: ${profile?.title || 'Developer'}
 - Skills: ${profile?.skills?.join(', ') || 'Various'}
+- Preferred language: ${profile?.preferred_language || 'English'}
+- Languages: ${profile?.languages?.join(', ') || 'Not specified'}
 
 GIG: ${gigContext?.title || 'Unknown project'}
 STATUS: ${gigContext?.state || 'Active'}
@@ -83,25 +64,22 @@ Write a professional, helpful, concise reply. Be friendly but specific.
 - Keep it under 100 words
 - Sound human, not robotic
 
-Output ONLY the reply text, nothing else.`
-    }]
-  });
+Output ONLY the reply text, nothing else.`,
+    },
+  ], { task: 'clientReply', temperature: 0.6, max_tokens: 300 });
 
-  return response.content[0].text.trim();
+  return content.trim();
 }
 
-/**
- * Review auto-delivered work before sending to client.
- */
 export async function reviewDelivery(deliverables, gigContext) {
-  const claude = getClient();
-
-  const response = await claude.messages.create({
-    model: 'claude-sonnet-4-20250514',
-    max_tokens: 1000,
-    messages: [{
+  const { content } = await kiloChat([
+    {
+      role: 'system',
+      content: 'You are a senior QA reviewer. Respond ONLY in JSON.',
+    },
+    {
       role: 'user',
-      content: `You are a senior QA reviewer checking work before sending to a client.
+      content: `Review these deliverables before sending to a client.
 
 GIG: ${gigContext.title}
 DESCRIPTION: ${gigContext.description?.substring(0, 500)}
@@ -114,15 +92,13 @@ Review and respond in JSON:
   "issues": ["<issue1>", "<issue2>"],
   "fixes_needed": ["<fix1>", "<fix2>"],
   "client_message": "<suggested delivery message to client>"
-}`
-    }]
-  });
+}`,
+    },
+  ], { task: 'review', temperature: 0.2, max_tokens: 800 });
 
   try {
-    const text = response.content[0].text.trim();
-    const match = text.match(/\{[\s\S]*\}/);
-    if (match) return JSON.parse(match[0]);
+    const parsed = extractJson(content);
+    if (parsed) return parsed;
   } catch {}
-
   return { quality: 'needs_fixes', score: 50, issues: ['Could not review'], fixes_needed: [], client_message: '' };
 }

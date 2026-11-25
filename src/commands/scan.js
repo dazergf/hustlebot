@@ -6,6 +6,7 @@ import { scanTwitter } from '../scanners/twitter.js';
 import { scanHackerNews } from '../scanners/hackernews.js';
 import { scanFreelancer } from '../scanners/freelancer.js';
 import { scanFiverr } from '../scanners/fiverr.js';
+import { scanDjango } from '../scanners/django.js';
 import { scoreGigMatch } from '../engines/ai.js';
 import { saveGigs, getApiKey } from '../utils/config.js';
 
@@ -46,6 +47,9 @@ export async function scanGigs(opts, config) {
           break;
         case 'fiverr':
           gigs = await scanFiverr(keywords, { limit });
+          break;
+        case 'django':
+          gigs = await scanDjango(keywords, { limit });
           break;
         default:
           spinner.warn(`  ${platform} scanner not yet implemented`);
@@ -189,6 +193,7 @@ function platformColor(platform) {
     case 'fiverr': return chalk.hex('#1dbf73')(platform);
     case 'twitter': return chalk.hex('#1da1f2')(platform);
     case 'hackernews': return chalk.hex('#ff6600')(platform);
+    case 'django': return chalk.hex('#44b78b')(platform);
     default: return chalk.cyan(platform);
   }
 }

@@ -1,22 +1,22 @@
 /**
- * Product Builder — The core engine that builds products using Claude Code
+ * Product Builder — The core engine that builds products using Kilo Gateway
  *
- * Takes a product idea, creates a PRD, spawns Claude Code to build it,
- * runs quality checks, and packages it for deployment.
+ * Takes a product idea, creates a PRD, generates complete product files via
+ * the Kilo Gateway API, runs quality checks, and packages it for deployment.
  *
  * This is the MONEY PRINTER. It turns ideas into sellable products.
  */
 
-import { spawn } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import { updateProduct, ProductState, ProductTypes } from './product-catalog.js';
 import { getConfigDir } from '../utils/config.js';
+import { kiloChat, extractJson } from '../engines/kilo-client.js';
 
 const PRODUCTS_DIR = () => path.join(getConfigDir(), 'products');
 
 /**
- * Generate a Product Requirements Document (PRD) for Claude Code
+ * Generate a Product Requirements Document (PRD)
  */
 function generatePRD(product) {
   const typeInfo = ProductTypes[product.type] || {};
@@ -74,12 +74,6 @@ Every product MUST include a landing/sales page with:
 - The product should work immediately when deployed
 
 ---
-
-## Context
-This product is being built by an autonomous AI Product Factory.
-The goal is to create something people will PAY for.
-Quality and polish matter more than quantity of features.
-Build LESS but make it PERFECT.
 `;
 }
 
@@ -178,7 +172,7 @@ function getTypeRequirements(type) {
 }
 
 /**
- * Build a product using Claude Code (headless mode)
+ * Build a product using Kilo Gateway (API-based)
  */
 export async function buildProduct(product) {
   const productDir = path.join(PRODUCTS_DIR(), product.id);
@@ -200,101 +194,79 @@ export async function buildProduct(product) {
   console.log(`  📁 Directory: ${productDir}`);
   console.log(`  📋 PRD saved to: ${prdPath}\n`);
 
-  // Build the master prompt for Claude Code
+  // Build the master prompt
   const masterPrompt = `You are building a commercial digital product that will be SOLD for real money.
 
-Read the PRD at ${prdPath} and build the COMPLETE product in the directory ${productDir}.
+Read the PRD below and build the COMPLETE product in the directory ${productDir}.
+
+PRD:
+${prd}
 
 CRITICAL RULES:
-1. Build EVERYTHING in ${productDir} — do not create files outside this directory
+1. Build EVERYTHING — create all files needed for a complete product
 2. This product will be sold for $${product.price} — it must be worth that price
 3. Make it BEAUTIFUL — first impressions matter for sales
 4. Make it FUNCTIONAL — it must actually work, not just look good
 5. Include a landing/sales page (index.html) with a "Buy Now" button
 6. Use Tailwind CSS via CDN for styling (no build step needed for quick deploy)
 7. No placeholder content — everything should be real, useful content
-8. Test your work — make sure everything renders correctly
+8. Include a README.md with setup instructions
 
-START BUILDING NOW. Read the PRD, then create every file needed.`;
+Return ONLY a JSON object listing all files to create:
+{"files": [{"path": "relative/path.ext", "content": "<full file contents>"}]}
+No markdown fences, no explanations — JSON only.`;
 
-  // Spawn Claude Code in headless mode
-  const timeout = getTimeout(product.type);
-  console.log(`  ⏱ Timeout: ${timeout / 60000} minutes`);
+  try {
+    console.log('  ⏳ Generating product files via Kilo Gateway...');
+    const { content } = await kiloChat([
+      {
+        role: 'system',
+        content: 'You are an expert full-stack developer building a sellable digital product. Output ONLY valid JSON with a "files" array. Each file has "path" and "content". No markdown fences.',
+      },
+      { role: 'user', content: masterPrompt },
+    ], { task: 'delivery', temperature: 0.3, max_tokens: 8000 });
 
-  return new Promise((resolve) => {
-    const args = [
-      '-p', masterPrompt,
-      '--allowedTools', 'Read,Write,Edit,Bash(npm install:*),Bash(npx:*),Bash(node:*),Bash(mkdir:*),Bash(ls:*),Bash(cat:*),Glob,Grep',
-      '--output-format', 'text',
-    ];
+    const parsed = extractJson(content);
+    const files = parsed?.files || [];
 
-    const proc = spawn('claude', args, {
-      cwd: productDir,
-      shell: true,
-      timeout,
-      env: { ...process.env },
-    });
+    console.log(`  ✅ Build complete: ${files.length} files generated`);
 
-    let output = '';
-    let errorOutput = '';
-
-    proc.stdout?.on('data', (data) => {
-      const text = data.toString();
-      output += text;
-      // Show progress dots
-      if (text.includes('Write') || text.includes('Edit') || text.includes('Created')) {
-        process.stdout.write('.');
+    for (const file of files) {
+      if (!file?.path || typeof file.content !== 'string') continue;
+      const filePath = path.join(productDir, file.path);
+      const fileDir = path.dirname(filePath);
+      if (!fs.existsSync(fileDir)) {
+        fs.mkdirSync(fileDir, { recursive: true });
       }
+      fs.writeFileSync(filePath, file.content);
+      console.log(`  📄 ${file.path} (${file.content.split('\\n').length} lines)`);
+    }
+
+    const hasIndex = files.some(f => f.path?.endsWith('index.html'));
+    const hasPackageJson = files.some(f => f.path?.endsWith('package.json'));
+
+    if (hasIndex) console.log('  🌐 Landing page: index.html found');
+    if (hasPackageJson) console.log('  📦 Package: package.json found');
+
+    updateProduct(product.id, {
+      state: ProductState.TESTING,
     });
 
-    proc.stderr?.on('data', (data) => {
-      errorOutput += data.toString();
-    });
-
-    proc.on('close', (code) => {
-      console.log('\n');
-
-      if (code === 0 || output.length > 100) {
-        // Check what was built
-        const files = listFiles(productDir);
-        const hasIndex = files.some(f => f.endsWith('index.html'));
-        const hasPackageJson = files.some(f => f.endsWith('package.json'));
-
-        console.log(`  ✅ Build complete: ${files.length} files created`);
-        if (hasIndex) console.log('  🌐 Landing page: index.html found');
-        if (hasPackageJson) console.log('  📦 Package: package.json found');
-
-        updateProduct(product.id, {
-          state: ProductState.TESTING,
-        });
-
-        resolve({
-          success: true,
-          files,
-          hasIndex,
-          hasPackageJson,
-          output: output.slice(-2000),
-        });
-      } else {
-        console.log(`  ❌ Build failed (exit code: ${code})`);
-        if (errorOutput) console.log(`  Error: ${errorOutput.slice(0, 500)}`);
-
-        updateProduct(product.id, { state: ProductState.PLANNED });
-
-        resolve({
-          success: false,
-          error: errorOutput || `Process exited with code ${code}`,
-          output: output.slice(-2000),
-        });
-      }
-    });
-
-    proc.on('error', (err) => {
-      console.log(`  ❌ Failed to spawn Claude Code: ${err.message}`);
-      updateProduct(product.id, { state: ProductState.PLANNED });
-      resolve({ success: false, error: err.message });
-    });
-  });
+    return {
+      success: true,
+      files: listFiles(productDir),
+      hasIndex,
+      hasPackageJson,
+      output: content.slice(-2000),
+    };
+  } catch (err) {
+    console.log(`  ❌ Build failed: ${err.message}`);
+    updateProduct(product.id, { state: ProductState.PLANNED });
+    return {
+      success: false,
+      error: err.message,
+    };
+  }
 }
 
 /**
@@ -395,16 +367,16 @@ export async function runProductQuality(product) {
  */
 function getTimeout(type) {
   const timeouts = {
-    pdf_guide: 20 * 60 * 1000,       // 20 min
-    notion_template: 15 * 60 * 1000,  // 15 min
-    website_template: 30 * 60 * 1000,  // 30 min
-    web_tool: 45 * 60 * 1000,          // 45 min
-    chrome_extension: 30 * 60 * 1000,  // 30 min
-    api_service: 30 * 60 * 1000,       // 30 min
-    starter_kit: 60 * 60 * 1000,       // 1 hour
-    full_app: 90 * 60 * 1000,          // 1.5 hours
-    prompt_library: 20 * 60 * 1000,    // 20 min
-    ai_tool: 60 * 60 * 1000,           // 1 hour
+    pdf_guide: 20 * 60 * 1000,
+    notion_template: 15 * 60 * 1000,
+    website_template: 30 * 60 * 1000,
+    web_tool: 45 * 60 * 1000,
+    chrome_extension: 30 * 60 * 1000,
+    api_service: 30 * 60 * 1000,
+    starter_kit: 60 * 60 * 1000,
+    full_app: 90 * 60 * 1000,
+    prompt_library: 20 * 60 * 1000,
+    ai_tool: 60 * 60 * 1000,
   };
   return timeouts[type] || 30 * 60 * 1000;
 }

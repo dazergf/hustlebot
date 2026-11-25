@@ -7,6 +7,7 @@ import { initProfile } from './commands/init.js';
 import { scanGigs } from './commands/scan.js';
 import { proposeGig } from './commands/propose.js';
 import { showStatus } from './commands/status.js';
+import { healthCheck } from './utils/health.js';
 import { deliverProject } from './commands/deliver.js';
 import { autopilotStart, autopilotStop, autopilotStatus, autopilotConfig, autopilotLogs, autopilotRunNow } from './commands/autopilot.js';
 import { launchDashboard } from './commands/dashboard.js';
@@ -53,7 +54,7 @@ program
 program
   .command('scan')
   .description('Scan platforms for matching freelance gigs')
-  .option('-p, --platform <platform>', 'Scan specific platform (upwork|twitter|hackernews|freelancer|fiverr|all)', 'all')
+  .option('-p, --platform <platform>', 'Scan specific platform (upwork|twitter|hackernews|freelancer|fiverr|django|all)', 'all')
   .option('-l, --limit <number>', 'Max results to show', '20')
   .option('--min-rate <number>', 'Minimum hourly rate filter')
   .option('--min-score <number>', 'Minimum match score (0-100)', '50')
@@ -99,6 +100,21 @@ program
   });
 
 program
+  .command('health')
+  .description('Check production readiness (API keys, browser, extensions)')
+  .action(async () => {
+    const result = await healthCheck();
+    console.log();
+    for (const c of result.checks) {
+      const icon = c.ok ? '✅' : '❌';
+      console.log(`  ${icon} ${c.name}: ${c.message}`);
+    }
+    console.log();
+    console.log(result.ok ? '  ✅ All checks passed — ready for production' : '  ❌ Some checks failed — fix before running daemon');
+    console.log();
+  });
+
+program
   .command('dashboard')
   .description('Open the web dashboard in your browser')
   .option('-p, --port <port>', 'Port to run on', '3456')
@@ -108,8 +124,8 @@ program
 
 program
   .command('auth')
-  .description('Authenticate with a freelance platform')
-  .argument('<platform>', 'Platform to log into (upwork|freelancer)')
+  .description('Authenticate with a freelance platform (persistent browser session)')
+  .argument('<platform>', 'Platform to log into (upwork|freelancer|twitter|hackernews|fiverr|django)')
   .action(async (platform) => {
     await authPlatform(platform);
   });

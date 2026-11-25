@@ -133,14 +133,13 @@ function convertFiverrGigToDemand(gig, keyword, index, source) {
  */
 async function tryFiverrPuppeteer(keyword) {
   try {
-    const { getOrLaunchBrowser } = await import('../browser/chrome.js');
-    const browser = await getOrLaunchBrowser();
-    if (!browser) return [];
+    const { launchBrowser } = await import('../browser/playwright-manager.js');
+    const { context, page } = await launchBrowser({ headless: true });
+    if (!page) return [];
 
-    const page = await browser.newPage();
     const query = encodeURIComponent(keyword);
     await page.goto(`https://www.fiverr.com/search/gigs?query=${query}`, {
-      waitUntil: 'networkidle2',
+      waitUntil: 'domcontentloaded',
       timeout: 20000,
     });
 
@@ -169,7 +168,7 @@ async function tryFiverrPuppeteer(keyword) {
       return results;
     }, keyword);
 
-    await page.close();
+    await context.close();
 
     return gigs.map((gig, i) => {
       const demandTitle = gig.title

@@ -1,31 +1,38 @@
-import { launchBrowser, getPage, takeScreenshot, isLoggedIn, waitForLogin } from './chrome.js';
-import { log, error as logError } from '../utils/logger.js';
+import { launchBrowser, takeScreenshot } from './playwright-manager.js';
+import { ensureLoggedIn } from './auto-login.js';
+import { log, error as logError, warn } from '../utils/logger.js';
 import { notify } from '../notifications/notify.js';
 
 /**
  * Submit a bid on Freelancer.com using browser automation.
  */
-export async function submitFreelancerBid(gig, proposalText, bidAmount) {
+export async function submitFreelancerBid(gig, proposalText, bidAmount, notifyFn = null) {
+  let context = null;
   let page = null;
 
   try {
     log(`[FREELANCER] Submitting bid for: ${gig.title}`);
 
-    page = await getPage(null);
+    const launched = await launchBrowser({ headless: false });
+    context = launched.context;
+    page = launched.page;
 
-    const loggedIn = await isLoggedIn(page, 'freelancer');
-    if (!loggedIn) {
+    // Ensure session (persistent or auto-login)
+    const auth = await ensureLoggedIn(page, 'freelancer', notifyFn);
+    if (!auth.success) {
+      warn('[FREELANCER] Not logged in — falling back to clipboard');
       return {
         success: false,
         method: 'needs_login',
-        error: 'Not logged into Freelancer. Run hustlebot auth freelancer to log in.',
+        error: auth.error,
       };
     }
+    log(`[FREELANCER] Session ready via ${auth.method}`);
 
     // Navigate to the project page
     const projectUrl = gig.url || `https://www.freelancer.com/projects/${gig.id}`;
     log(`[FREELANCER] Navigating to: ${projectUrl}`);
-    await page.goto(projectUrl, { waitUntil: 'networkidle2', timeout: 30000 });
+    await page.goto(projectUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
     await new Promise(r => setTimeout(r, 2000));
 
     // Click "Bid on this Project" / "Place Bid"
@@ -100,24 +107,37 @@ export async function submitFreelancerBid(gig, proposalText, bidAmount) {
       });
     }
 
-    await page.close();
+    await context.close();
     return { success: isSuccess, method: 'browser', screenshotPath: postScreenshot, error: isSuccess ? null : 'Check screenshot' };
 
   } catch (err) {
     logError(`[FREELANCER] Submission error: ${err.message}`);
-    if (page) { try { await page.close(); } catch {} }
+    if (page) { try { await context.close(); } catch {} }
     return { success: false, method: 'browser', error: err.message };
   }
 }
 
 export async function setupFreelancerSession() {
-  const page = await getPage(null);
+  const { context, page } = await launchBrowser({ headless: false });
   const loggedIn = await isLoggedIn(page, 'freelancer');
   if (loggedIn) {
-    await page.close();
+    await context.close();
     return { success: true, message: 'Already logged into Freelancer' };
   }
+
+  const auto = await loginWithCredentials(page, {
+    email: process.env.FREELANCER_EMAIL,
+    password: process.env.FREELANCER_PASSWORD,
+    platform: 'freelancer',
+  });
+
+  if (auto.success) {
+    await context.close();
+    return { success: true, message: 'Freelancer session saved (auto-login)' };
+  }
+
+  log(`[FREELANCER] Auto-login failed: ${auto.error}. Falling back to manual.`);
   await waitForLogin(page, 'freelancer');
-  await page.close();
-  return { success: true, message: 'Freelancer session saved' };
+  await context.close();
+  return { success: true, message: 'Freelancer session saved (manual login)' };
 }

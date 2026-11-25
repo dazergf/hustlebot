@@ -5,3 +5,12 @@ node_modules/
 dist/
 coverage/
 .hustlebot-test/
+test-kilo.js
+
+# Browser automation
+extensions/nopecha/
+extensions/nopecha-repo-backup/
+browser-profile/
+*.deb
+*.zip
+/tmp/nopecha-*

@@ -130,6 +130,7 @@
     .platform-hackernews { background: rgba(255,107,0,0.15); color: var(--accent); }
     .platform-freelancer { background: rgba(168,85,247,0.15); color: var(--purple); }
     .platform-fiverr { background: rgba(34,197,94,0.15); color: #1dbf73; }
+    .platform-django { background: rgba(9,46,32,0.25); color: #44b78b; }
 
     /* Config */
     .config-row { display: flex; justify-content: space-between; padding: 0.45rem 0; border-bottom: 1px solid var(--border); font-size: 0.8rem; }
@@ -705,6 +706,7 @@
       if (p.includes('hackernews')) return 'platform-hackernews';
       if (p.includes('freelancer')) return 'platform-freelancer';
       if (p.includes('fiverr')) return 'platform-fiverr';
+      if (p.includes('django')) return 'platform-django';
       return 'platform-hackernews';
     }
 

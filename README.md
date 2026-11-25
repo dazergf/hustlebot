@@ -1,8 +1,32 @@
 # 🤖 HustleBot
 
-### The fully automated AI freelance agent — finds gigs, writes proposals, submits them, delivers work, and tracks payments. All while you sleep.
+### Autonomous AI Job & Opportunity Hunter — finds gigs, writes proposals, submits them, delivers work, and tracks payments. All while you sleep.
 
-> **I built an AI agent that runs 24/7 scanning 5 platforms, auto-submitting proposals, managing client communication, and generating deliverables. It's a money-printing machine powered by Claude.**
+> **An extensively enhanced fork of [Teja-2k/HustleBot](https://github.com/Teja-2k/hustlebot), featuring substantial improvements in autonomous opportunity discovery, multi-source scraping, AI-powered job matching, browser automation, CAPTCHA handling, and production readiness.**
+
+---
+
+## 📌 Origin & Improvements
+
+**Origin:** Derived from [Teja-2k/HustleBot](https://github.com/Teja-2k/hustlebot) (MIT License). Original copyright and license notices are preserved.
+
+**Key improvements over the original:**
+
+| Area | Original | This Fork |
+|------|----------|-----------|
+| **LLM Provider** | Anthropic/Claude SDK (`spawn('claude')`) | **Kilo Gateway** (OpenAI-compatible, all free models, task-based routing) |
+| **Browser Automation** | Puppeteer (Upwork/Freelancer only) | **Playwright** (persistent Chromium profile, all 5 platforms) |
+| **CAPTCHA Handling** | None | **NopeCHA** extension + Telegram alert fallback on failure |
+| **Auth** | Upwork/Freelancer only | **All 5 platforms** (upwork, freelancer, twitter, hackernews, fiverr) with auto-login + manual fallback |
+| **Session Management** | Per-platform sessions | **Shared persistent profile** (`~/.hustlebot/browser-profile`) |
+| **Notifications** | Discord + Telegram | Discord + Telegram (including CAPTCHA/session failure alerts) |
+| **Production** | No tests, no health check | **47 regression tests**, health check, retry/backoff, .env auto-load, headless mode, PRODUCTION.md |
+| **Scoring** | Claude-based | Kilo-based with keyword fallback |
+| **HN Scanner** | Basic | Filters service-offering posts, decodes HTML entities |
+| **Languages** | Not tracked | `preferred_language` + `languages` with levels, injected into AI prompts |
+| **Model Routing** | Single model | Task-based routing (scoring→auto, proposal→beam, clientReply→lfm) |
+
+**Skills demonstrated:** JavaScript/Node.js, AI/LLM integration, Playwright browser automation, REST API consumption, daemon/scheduling, notification systems, testing, production deployment.
 
 ---
 
@@ -12,7 +36,7 @@ $ hustlebot scan
   🔍 Scanning for gigs...
 
   Keywords: OpenClaw, Claude Code, AI automation, data pipeline
-  Platforms: upwork, twitter, hackernews, freelancer, fiverr
+  Platforms: upwork, twitter, hackernews, freelancer, fiverr, django
 
   ✓ upwork: found 8 potential gigs
   ✓ twitter: found 5 potential gigs
@@ -76,9 +100,10 @@ hustlebot dashboard
 ### Requirements
 
 - Node.js 18+
-- Anthropic API key ([get one here](https://console.anthropic.com))
-- Chrome browser (for auto-submission)
+- Kilo API key ([get one here](https://kilo.ai)) — free models available
+- Chrome/Chromium browser (for auto-submission)
 - Optional: Discord webhook + Telegram bot for notifications
+- Optional: NopeCHA API key for higher CAPTCHA quota
 
 ---
 
@@ -89,7 +114,7 @@ hustlebot dashboard
 |---------|-------------|
 | `hustlebot init` | Set up your skill profile, API keys, and preferences |
 | `hustlebot scan` | Scan all 5 platforms for matching gigs |
-| `hustlebot scan -p freelancer` | Scan specific platform (upwork/twitter/hackernews/freelancer/fiverr) |
+| `hustlebot scan -p freelancer` | Scan specific platform (upwork/twitter/hackernews/freelancer/fiverr/django) |
 | `hustlebot propose <#>` | Generate a personalized proposal for a gig |
 | `hustlebot propose <#> --tone bold` | Generate with different tone (professional/casual/bold) |
 | `hustlebot deliver <#>` | Create project workspace + CLAUDE.md |
@@ -118,6 +143,10 @@ hustlebot dashboard
 | `hustlebot autopilot logs` | View activity logs |
 | `hustlebot auth upwork` | Set up browser session for Upwork auto-submit |
 | `hustlebot auth freelancer` | Set up browser session for Freelancer auto-submit |
+| `hustlebot auth twitter` (or `x`) | Set up browser session for Twitter/X DM automation |
+| `hustlebot auth hackernews` (or `hn`) | Set up browser session for Hacker News comments |
+| `hustlebot auth fiverr` | Set up browser session for Fiverr messages |
+| `hustlebot health` | Check production readiness (API keys, browser, extensions) |
 
 ---
 
@@ -142,17 +171,23 @@ Claude analyzes the job, cross-references your profile, and generates proposals 
 - References your relevant experience
 - Ends with a clear call to action
 
-### 4. Auto-Submit — Browser automation
-HustleBot uses Puppeteer to automatically submit proposals on Upwork and Freelancer:
-- Persistent Chrome sessions (login once, submit forever)
-- Anti-detection measures
-- Screenshot audit trail for every submission
-- Graceful fallback to clipboard when browser automation fails
+### 4. Auto-Submit — Browser automation (Playwright + NopeCHA)
+HustleBot uses Playwright to automatically submit proposals across all 5 platforms:
+- **Persistent Chromium profile** (login once, submit forever — shared across all platforms)
+- **NopeCHA extension** for automatic CAPTCHA resolution (reCAPTCHA, hCaptcha, Turnstile)
+- **Telegram alert fallback** when CAPTCHA resolution fails or session is missing
+- **Auto-login** from `.env` credentials with manual fallback
+- **Graceful fallback** to clipboard + URL when browser automation fails
+
+Supported platforms: Upwork, Freelancer, Twitter/X, Hacker News, Fiverr.
 
 ```bash
-# One-time setup: login to your accounts
+# One-time setup: login to your accounts (or set credentials in .env for auto-login)
 hustlebot auth upwork
 hustlebot auth freelancer
+hustlebot auth twitter
+hustlebot auth hackernews
+hustlebot auth fiverr
 ```
 
 ### 5. Client Communication — AI-powered
@@ -224,14 +259,16 @@ DISCOVERED → SCORED → PROPOSAL_DRAFT → SUBMITTED → WON → DELIVERING �
 ## The Stack
 
 - **Runtime:** Node.js 18+ (ES modules)
-- **AI:** Claude Sonnet 4 via Anthropic SDK
+- **AI:** Kilo Gateway (OpenAI-compatible, free models, task-based routing: scoring→auto, proposal→beam, clientReply→lfm)
 - **Scraping:** Cheerio + fetch (5 platform scanners)
-- **Browser Automation:** Puppeteer (auto-submission + message monitoring)
+- **Browser Automation:** Playwright (persistent Chromium profile, all 5 platforms)
+- **CAPTCHA:** NopeCHA extension (auto-resolution) + Telegram alert fallback
 - **Scheduling:** node-schedule (cron-like daemon)
 - **Notifications:** Discord webhooks + Telegram Bot API
 - **Dashboard:** Express + single-page dark-themed UI
 - **Delivery:** AI-powered code generation + ZIP packaging
 - **Payments:** JSON-based earnings tracker with analytics
+- **Testing:** node:test (47+ regression tests)
 - **Storage:** Local YAML/JSON in ~/.hustlebot/
 
 ---
@@ -260,6 +297,15 @@ DISCOVERED → SCORED → PROPOSAL_DRAFT → SUBMITTED → WON → DELIVERING �
 - [x] Deduplication across scan cycles
 - [x] Earnings tracking + analytics
 - [x] Payment recording + project tracking
+- [x] Kilo Gateway migration (all free models, task-based routing)
+- [x] Playwright browser automation (all 5 platforms)
+- [x] NopeCHA CAPTCHA auto-resolution + Telegram fallback
+- [x] Unified auth for all platforms (auto-login + manual fallback)
+- [x] Persistent shared browser session
+- [x] Health check + production guide
+- [x] 47+ regression tests
+- [x] Retry/backoff on API calls
+- [x] .env auto-loading
 - [ ] LinkedIn scanner
 - [ ] Proposal templates library
 - [ ] Team mode (multiple profiles)
@@ -281,7 +327,8 @@ DISCOVERED → SCORED → PROPOSAL_DRAFT → SUBMITTED → WON → DELIVERING �
   payments.json         # Payment records
   seen-gigs.json        # Dedup database
   deliveries/           # AI-generated project files
-  sessions/             # Browser login sessions
+  browser-profile/      # Persistent Chromium profile (all platforms)
+  sessions/             # Legacy browser login sessions
   screenshots/          # Submission audit trail
   logs/                 # Autopilot activity logs
 ```
@@ -298,10 +345,10 @@ Add a new scanner: create a file in `src/scanners/` that exports a scan function
 
 ## License
 
-MIT — use it, modify it, build a business on it.
+MIT — use it, modify it, build a business on it. Original copyright and license notices from [Teja-2k/HustleBot](https://github.com/Teja-2k/hustlebot) are preserved.
 
 ---
 
-**Built with Claude Code. Now it pays for itself.**
+**Derived from [Teja-2k/HustleBot](https://github.com/Teja-2k/hustlebot). Extensively enhanced with Kilo Gateway, Playwright, NopeCHA, and production readiness.**
 
 ⭐ **Star this repo if you think freelancing should be automated.**

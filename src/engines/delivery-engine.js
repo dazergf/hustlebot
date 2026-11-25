@@ -1,5 +1,5 @@
-import Anthropic from '@anthropic-ai/sdk';
-import { getApiKey } from '../utils/config.js';
+import { kiloChat, extractJson } from './kilo-client.js';
+import { getKiloApiKey } from '../config/kilo-models.js';
 import { log, warn } from '../utils/logger.js';
 import fs from 'fs';
 import path from 'path';
@@ -7,37 +7,28 @@ import os from 'os';
 
 const DELIVERY_DIR = path.join(os.homedir(), '.hustlebot', 'deliveries');
 
-/**
- * Auto-delivery engine — generates complete project deliverables using AI.
- * Takes a gig description and produces code, docs, or whatever the client needs.
- */
-
-/**
- * Generate a complete project delivery based on the gig requirements.
- * Returns structured deliverables ready for client submission.
- */
 export async function generateDelivery(gig, options = {}) {
-  const apiKey = getApiKey();
+  const apiKey = getKiloApiKey();
   if (!apiKey) throw new Error('API key required for auto-delivery');
-
-  const client = new Anthropic({ apiKey });
 
   log(`[DELIVERY] Generating deliverables for: ${gig.title}`);
 
   // Step 1: Analyze the gig and create a work plan
-  const planResponse = await client.messages.create({
-    model: 'claude-sonnet-4-20250514',
-    max_tokens: 2000,
-    messages: [{
+  const planRes = await kiloChat([
+    {
+      role: 'system',
+      content: 'You are a senior freelance developer planning a project delivery. Output ONLY valid JSON, no markdown fences.',
+    },
+    {
       role: 'user',
-      content: `You are a senior freelance developer planning a project delivery.
-
-Analyze this gig and create a detailed work plan:
+      content: `Analyze this gig and create a detailed work plan:
 
 Title: ${gig.title}
 Description: ${gig.description}
 Skills required: ${(gig.skills || []).join(', ')}
 Budget: ${gig.budget || 'Not specified'}
+Preferred language: ${profile?.preferred_language || 'English'}
+Languages: ${profile?.languages?.join(', ') || 'Not specified'}
 ${gig.client_requirements ? `Client requirements: ${gig.client_requirements}` : ''}
 
 Return a JSON object with:
@@ -51,14 +42,14 @@ Return a JSON object with:
 }
 
 Be realistic and match the budget scope. For small budgets ($100-500), keep it simple. For larger budgets, be thorough.
-Return ONLY the JSON, no markdown fences.`
-    }]
-  });
+Return ONLY the JSON, no markdown fences.`,
+    },
+  ], { task: 'delivery', temperature: 0.2, max_tokens: 1500 });
 
   let plan;
   try {
-    const planText = planResponse.content[0].text.trim();
-    plan = JSON.parse(planText.replace(/^```json?\n?/, '').replace(/\n?```$/, ''));
+    plan = extractJson(planRes.content);
+    if (!plan) throw new Error('no json');
   } catch {
     warn('[DELIVERY] Failed to parse work plan, using defaults');
     plan = {
@@ -71,7 +62,7 @@ Return ONLY the JSON, no markdown fences.`
       tech_stack: ['Python'],
       estimated_hours: 5,
       delivery_notes: 'Complete implementation as described.',
-      folder_structure: '.'
+      folder_structure: '.',
     };
   }
 
@@ -86,16 +77,16 @@ Return ONLY the JSON, no markdown fences.`
     fs.mkdirSync(deliveryPath, { recursive: true });
   }
 
-  for (const file of plan.files_to_create.slice(0, 15)) { // Cap at 15 files
+  for (const file of plan.files_to_create.slice(0, 15)) {
     try {
-      const fileResponse = await client.messages.create({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 4000,
-        messages: [{
+      const fileRes = await kiloChat([
+        {
+          role: 'system',
+          content: 'You are a senior developer creating a deliverable file. Output ONLY the file contents, no markdown fences, no explanations.',
+        },
+        {
           role: 'user',
-          content: `You are a senior developer creating a deliverable file for a freelance project.
-
-Project: ${gig.title}
+          content: `Project: ${gig.title}
 Description: ${gig.description}
 Tech stack: ${plan.tech_stack.join(', ')}
 
@@ -113,15 +104,13 @@ Rules:
 - Make it actually functional, not placeholder code
 - If it's a README, include setup instructions and usage examples
 
-Return ONLY the file contents. No markdown fences, no explanations.`
-        }]
-      });
+Return ONLY the file contents. No markdown fences, no explanations.`,
+        },
+      ], { task: 'delivery', temperature: 0.3, max_tokens: 3000 });
 
-      let content = fileResponse.content[0].text;
-      // Strip markdown fences if AI added them despite instructions
+      let content = fileRes.content;
       content = content.replace(/^```[\w]*\n/, '').replace(/\n```\s*$/, '');
 
-      // Save the file
       const filePath = path.join(deliveryPath, file.path);
       const fileDir = path.dirname(filePath);
       if (!fs.existsSync(fileDir)) {
@@ -138,15 +127,12 @@ Return ONLY the file contents. No markdown fences, no explanations.`
 
       log(`[DELIVERY] Generated: ${file.path} (${content.split('\n').length} lines)`);
 
-      // Rate limit
       await new Promise(r => setTimeout(r, 500));
-
     } catch (err) {
       warn(`[DELIVERY] Failed to generate ${file.path}: ${err.message}`);
     }
   }
 
-  // Step 3: Create a delivery package summary
   const summary = {
     delivery_id: deliveryId,
     gig_title: gig.title,
@@ -159,13 +145,11 @@ Return ONLY the file contents. No markdown fences, no explanations.`
     delivery_notes: plan.delivery_notes,
   };
 
-  // Save delivery manifest
   fs.writeFileSync(
     path.join(deliveryPath, '_delivery_manifest.json'),
     JSON.stringify(summary, null, 2)
   );
 
-  // Save to global deliveries index
   const indexPath = path.join(DELIVERY_DIR, 'deliveries-index.json');
   let index = [];
   try {
@@ -188,16 +172,12 @@ Return ONLY the file contents. No markdown fences, no explanations.`
   return summary;
 }
 
-/**
- * Create a ZIP archive of the delivery for client submission.
- */
 export async function packageDelivery(deliveryId) {
   const deliveryPath = path.join(DELIVERY_DIR, deliveryId);
   if (!fs.existsSync(deliveryPath)) {
     throw new Error(`Delivery not found: ${deliveryId}`);
   }
 
-  // Use native zip if available, otherwise create a tar
   const { execSync } = await import('child_process');
   const zipPath = path.join(DELIVERY_DIR, `${deliveryId}.zip`);
 
@@ -211,13 +191,10 @@ export async function packageDelivery(deliveryId) {
     return zipPath;
   } catch (err) {
     warn(`[DELIVERY] Packaging failed: ${err.message}`);
-    return deliveryPath; // Return folder path as fallback
+    return deliveryPath;
   }
 }
 
-/**
- * List all deliveries with their status.
- */
 export function listDeliveries() {
   const indexPath = path.join(DELIVERY_DIR, 'deliveries-index.json');
   try {
@@ -228,9 +205,6 @@ export function listDeliveries() {
   return [];
 }
 
-/**
- * Get a specific delivery by ID.
- */
 export function getDelivery(deliveryId) {
   const manifestPath = path.join(DELIVERY_DIR, deliveryId, '_delivery_manifest.json');
   try {
@@ -241,11 +215,7 @@ export function getDelivery(deliveryId) {
   return null;
 }
 
-/**
- * Update delivery status.
- */
 export function updateDeliveryStatus(deliveryId, status) {
-  // Update manifest
   const manifestPath = path.join(DELIVERY_DIR, deliveryId, '_delivery_manifest.json');
   try {
     const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
@@ -254,7 +224,6 @@ export function updateDeliveryStatus(deliveryId, status) {
     fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
   } catch {}
 
-  // Update index
   const indexPath = path.join(DELIVERY_DIR, 'deliveries-index.json');
   try {
     const index = JSON.parse(fs.readFileSync(indexPath, 'utf8'));

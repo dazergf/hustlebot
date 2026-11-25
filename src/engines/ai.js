@@ -1,40 +1,21 @@
-import Anthropic from '@anthropic-ai/sdk';
-import { getApiKey } from '../utils/config.js';
-
-let client = null;
-
-function getClient() {
-  if (!client) {
-    const apiKey = getApiKey();
-    if (!apiKey) {
-      throw new Error('No Anthropic API key found. Set ANTHROPIC_API_KEY env var or run hustlebot init.');
-    }
-    client = new Anthropic({ apiKey });
-  }
-  return client;
-}
+import { kiloChat, extractJson } from './kilo-client.js';
+import { getKiloApiKey } from '../config/kilo-models.js';
 
 export async function scoreGigMatch(gig, profile) {
-  let claude;
-  try {
-    claude = getClient();
-  } catch (e) {
-    // No API key — use keyword-based scoring instead of crashing
-    return keywordScore(gig, profile);
-  }
-
-  // If API has already failed this session, don't keep retrying
-  if (scoreGigMatch._apiFailed) {
+  const apiKey = getKiloApiKey();
+  if (!apiKey) {
     return keywordScore(gig, profile);
   }
 
   try {
-    const response = await claude.messages.create({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 500,
-      messages: [{
+    const { content } = await kiloChat([
+      {
+        role: 'system',
+        content: 'You are a freelance opportunity scorer. Respond ONLY with valid JSON.',
+      },
+      {
         role: 'user',
-        content: `You are a freelance opportunity scorer. Score this gig match from 0-100 and explain why in 1 line.
+        content: `Score this gig match from 0-100 and explain why in 1 line.
 
 FREELANCER PROFILE:
 - Name: ${profile.name}
@@ -52,58 +33,38 @@ GIG:
 - Platform: ${gig.platform}
 
 Respond ONLY with valid JSON, nothing else:
-{"score": <number 0-100>, "reason": "<1 line explanation>", "estimated_hours": <number>, "suggested_rate": <number>}`
-      }]
-    });
+{"score": <number 0-100>, "reason": "<1 line explanation>", "estimated_hours": <number>, "suggested_rate": <number>}`,
+      },
+    ], { task: 'scoring', temperature: 0.1, max_tokens: 300 });
 
-    const text = response.content[0].text.trim();
-    // Try to extract JSON from the response
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      const parsed = JSON.parse(jsonMatch[0]);
-      // Validate the score is a reasonable number
-      if (typeof parsed.score === 'number' && parsed.score >= 0 && parsed.score <= 100) {
-        return {
-          score: parsed.score,
-          reason: parsed.reason || 'AI scored',
-          estimated_hours: parsed.estimated_hours || 10,
-          suggested_rate: parsed.suggested_rate || profile.rate_floor,
-        };
-      }
+    const parsed = extractJson(content);
+    if (parsed && typeof parsed.score === 'number' && parsed.score >= 0 && parsed.score <= 100) {
+      return {
+        score: parsed.score,
+        reason: parsed.reason || 'AI scored',
+        estimated_hours: parsed.estimated_hours || 10,
+        suggested_rate: parsed.suggested_rate || profile.rate_floor,
+      };
     }
   } catch (e) {
-    // API call failed — mark as failed for this session to avoid spamming errors
-    if (e.status === 400 || e.status === 401 || e.status === 403) {
-      if (!scoreGigMatch._apiFailed) {
-        console.error(`  ⚠ API key issue (${e.status}) — switching to keyword scoring for this session`);
-        scoreGigMatch._apiFailed = true;
-      }
-    } else {
-      console.error(`  ⚠ AI scoring failed: ${e.message?.substring(0, 80)}`);
-    }
+    console.error(`  ⚠ AI scoring failed: ${e.message?.substring(0, 80)}`);
   }
 
-  // Fallback: keyword-based scoring
   return keywordScore(gig, profile);
 }
 
-/**
- * Smart keyword-based scoring when AI is unavailable
- */
 function keywordScore(gig, profile) {
   const text = `${gig.title} ${gig.description || ''}`.toLowerCase();
   const skills = profile.skills.map(s => s.toLowerCase());
 
-  let score = 20; // base
+  let score = 20;
   let reasons = [];
 
-  // Skill match (+10 per matching skill, max 40)
   const matchedSkills = skills.filter(s => text.includes(s));
   const skillBonus = Math.min(40, matchedSkills.length * 10);
   score += skillBonus;
   if (matchedSkills.length > 0) reasons.push(`${matchedSkills.length} skill matches`);
 
-  // Budget check (+15 if budget seems good)
   const budgetText = (gig.budget || '').toLowerCase();
   const budgetNums = budgetText.match(/\$?([\d,]+)/g)?.map(n => parseInt(n.replace(/[$,]/g, ''))) || [];
   if (budgetNums.length > 0) {
@@ -114,7 +75,6 @@ function keywordScore(gig, profile) {
     }
   }
 
-  // Freshness bonus (+10 if recent)
   if (gig.time_submitted || gig.scraped_at) {
     const age = Date.now() - new Date(gig.time_submitted || gig.scraped_at).getTime();
     if (age < 24 * 60 * 60 * 1000) {
@@ -126,27 +86,23 @@ function keywordScore(gig, profile) {
     }
   }
 
-  // Low competition bonus (+10)
   if (gig.bid_count !== undefined && gig.bid_count < 10) {
     score += 10;
     reasons.push('low competition');
   }
 
-  // Freelance keyword bonus (+5)
   const freelanceWords = ['freelancer', 'contract', 'part-time', 'remote', 'project-based', 'gig'];
   if (freelanceWords.some(w => text.includes(w))) {
     score += 5;
     reasons.push('freelance-friendly');
   }
 
-  // Penalty for full-time indicators
   const fullTimeWords = ['full-time', 'fulltime', 'salary', 'equity', 'benefits', 'w-2', '401k', 'on-site only'];
   if (fullTimeWords.some(w => text.includes(w))) {
     score -= 20;
     reasons.push('full-time indicator');
   }
 
-  // Demo penalty
   if (gig.is_demo) {
     score = Math.min(score, 40);
     reasons.push('demo data');
@@ -161,8 +117,6 @@ function keywordScore(gig, profile) {
 }
 
 export async function generateProposal(gig, profile, options = {}) {
-  const claude = getClient();
-
   const tone = options.tone || 'professional';
   const length = options.length || 'medium';
 
@@ -182,12 +136,14 @@ export async function generateProposal(gig, profile, options = {}) {
     ? `\n\nHere are examples of my past successful proposals for voice matching:\n${profile.sample_proposals.map((p, i) => `Example ${i + 1}:\n${p}`).join('\n\n')}`
     : '';
 
-  const response = await claude.messages.create({
-    model: 'claude-sonnet-4-20250514',
-    max_tokens: 2000,
-    messages: [{
+  const { content } = await kiloChat([
+    {
+      role: 'system',
+      content: 'You are an elite freelance proposal writer. Output ONLY the proposal text, nothing else.',
+    },
+    {
       role: 'user',
-      content: `You are an elite freelance proposal writer. Write a winning proposal for this gig.
+      content: `Write a winning proposal for this gig.
 
 CRITICAL RULES:
 - Be SPECIFIC to this exact gig - reference details from the job description
@@ -207,6 +163,8 @@ FREELANCER PROFILE:
 - Years Experience: ${profile.years_experience || 'Not specified'}
 - Key Achievements: ${profile.achievements?.join('; ') || 'Not specified'}
 - Rate: $${profile.rate_floor}/hr
+- Preferred language: ${profile.preferred_language || 'English'}
+- Languages: ${profile.languages?.join(', ') || 'Not specified'}
 ${sampleProposals}
 
 GIG DETAILS:
@@ -218,22 +176,22 @@ GIG DETAILS:
 - Platform: ${gig.platform}
 - URL: ${gig.url || 'N/A'}
 
-Write the proposal now. Output ONLY the proposal text, nothing else.`
-    }]
-  });
+Write the proposal now. Output ONLY the proposal text, nothing else.`,
+    },
+  ], { task: 'proposal', temperature: 0.7, max_tokens: 1200 });
 
-  return response.content[0].text.trim();
+  return content.trim();
 }
 
 export async function generateDeliveryPlan(gig, profile) {
-  const claude = getClient();
-
-  const response = await claude.messages.create({
-    model: 'claude-sonnet-4-20250514',
-    max_tokens: 2000,
-    messages: [{
+  const { content } = await kiloChat([
+    {
+      role: 'system',
+      content: 'You are a senior technical project planner. Output ONLY valid JSON.',
+    },
+    {
       role: 'user',
-      content: `You are a senior technical project planner. Create a delivery plan for this freelance project.
+      content: `Create a delivery plan for this freelance project.
 
 GIG:
 - Title: ${gig.title}
@@ -243,6 +201,8 @@ GIG:
 
 FREELANCER: ${profile.name} - ${profile.title}
 SKILLS: ${profile.skills.join(', ')}
+PREFERRED LANGUAGE: ${profile.preferred_language || 'English'}
+LANGUAGES: ${profile.languages?.join(', ') || 'Not specified'}
 
 Create a delivery plan in this JSON format:
 {
@@ -264,70 +224,62 @@ Create a delivery plan in this JSON format:
   "claude_code_commands": ["<suggested claude code command to start>"]
 }
 
-Output ONLY valid JSON.`
-    }]
-  });
+Output ONLY valid JSON.`,
+    },
+  ], { task: 'deliveryPlan', temperature: 0.2, max_tokens: 1500 });
 
   try {
-    const text = response.content[0].text.trim();
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      return JSON.parse(jsonMatch[0]);
-    }
+    const parsed = extractJson(content);
+    if (parsed) return parsed;
   } catch (e) {
     return null;
   }
+  return null;
 }
 
 export async function classifyGigType(gig) {
-  const claude = getClient();
-
-  const response = await claude.messages.create({
-    model: 'claude-sonnet-4-20250514',
-    max_tokens: 200,
-    messages: [{
+  const { content } = await kiloChat([
+    {
+      role: 'system',
+      content: 'Classify the gig. Respond ONLY in JSON.',
+    },
+    {
       role: 'user',
-      content: `Classify this freelance gig into one type. Respond ONLY in JSON.
-
-GIG: ${gig.title}
+      content: `GIG: ${gig.title}
 DESCRIPTION: ${gig.description?.substring(0, 300)}
 
-{"type": "code"|"writing"|"data"|"design"|"other", "deliverable": "<what needs to be built/delivered>"}`
-    }]
-  });
+{"type": "code"|"writing"|"data"|"design"|"other", "deliverable": "<what needs to be built/delivered>"}`,
+    },
+  ], { task: 'classify', temperature: 0.1, max_tokens: 200 });
 
   try {
-    const text = response.content[0].text.trim();
-    const match = text.match(/\{[\s\S]*\}/);
-    if (match) return JSON.parse(match[0]);
+    const parsed = extractJson(content);
+    if (parsed) return parsed;
   } catch {}
-
   return { type: 'other', deliverable: 'unknown' };
 }
 
 export async function assessDeliverability(gig, profile) {
-  const claude = getClient();
-
-  const response = await claude.messages.create({
-    model: 'claude-sonnet-4-20250514',
-    max_tokens: 200,
-    messages: [{
+  const { content } = await kiloChat([
+    {
+      role: 'system',
+      content: 'Assess deliverability. Respond ONLY in JSON.',
+    },
+    {
       role: 'user',
-      content: `Can an AI coding agent (Claude Code) autonomously deliver this gig? Consider scope, complexity, and whether it needs human judgment. Respond ONLY in JSON.
+      content: `Can an AI coding agent autonomously deliver this gig? Consider scope, complexity, and whether it needs human judgment. Respond ONLY in JSON.
 
 GIG: ${gig.title}
 DESCRIPTION: ${gig.description?.substring(0, 400)}
 FREELANCER SKILLS: ${profile.skills.join(', ')}
 
-{"canAutoDeliver": true|false, "confidence": <0-100>, "reason": "<1 line>"}`
-    }]
-  });
+{"canAutoDeliver": true|false, "confidence": <0-100>, "reason": "<1 line>"}`,
+    },
+  ], { task: 'classify', temperature: 0.1, max_tokens: 200 });
 
   try {
-    const text = response.content[0].text.trim();
-    const match = text.match(/\{[\s\S]*\}/);
-    if (match) return JSON.parse(match[0]);
+    const parsed = extractJson(content);
+    if (parsed) return parsed;
   } catch {}
-
   return { canAutoDeliver: false, confidence: 0, reason: 'Unable to assess' };
 }

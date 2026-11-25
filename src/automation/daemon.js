@@ -4,6 +4,7 @@ import { scanTwitter } from '../scanners/twitter.js';
 import { scanHackerNews } from '../scanners/hackernews.js';
 import { scanFreelancer } from '../scanners/freelancer.js';
 import { scanFiverr } from '../scanners/fiverr.js';
+import { scanDjango } from '../scanners/django.js';
 import { scoreGigMatch, generateProposal, classifyGigType, assessDeliverability } from '../engines/ai.js';
 import { getConfig, getApiKey, saveGigs } from '../utils/config.js';
 import { filterNewGigs } from './dedup.js';
@@ -19,6 +20,14 @@ let isRunning = false;
 export async function startDaemon() {
   const autopilotConfig = loadAutopilotConfig();
   setNotifyConfig(autopilotConfig);
+
+  // Health check
+  const { healthCheck } = await import('../utils/health.js');
+  const health = await healthCheck();
+  if (!health.ok) {
+    log('[DAEMON] ⚠ Health check failed — some features may not work.');
+    await notify('ERROR', { message: 'Health check failed: ' + health.checks.filter(c => !c.ok).map(c => c.name).join(', ') });
+  }
 
   log('========================================');
   log('[DAEMON] HustleBot Autopilot starting...');
@@ -81,6 +90,7 @@ async function runScanCycle(autopilotConfig) {
           case 'hackernews': gigs = await scanHackerNews(keywords, { limit: 10 }); break;
           case 'freelancer': gigs = await scanFreelancer(keywords, { limit: 15 }); break;
           case 'fiverr': gigs = await scanFiverr(keywords, { limit: 10 }); break;
+          case 'django': gigs = await scanDjango(keywords, { limit: 15 }); break;
         }
         log(`[SCAN] ${platform}: ${gigs.length} gigs`);
         allGigs.push(...gigs);
@@ -180,7 +190,16 @@ async function runProposeCycle(autopilotConfig) {
         if (shouldAutoSubmit) {
           // Auto-submit
           advanceGig(entry.id, States.PROPOSAL_REVIEW);
-          const result = await submitProposal(entry);
+          // Build a notifyFn for Telegram alerts (CAPTCHA/session failures)
+          const tgNotify = async (msg) => {
+            const tgToken = autopilotConfig?.telegram_bot_token;
+            const tgChat = autopilotConfig?.telegram_chat_id;
+            if (tgToken && tgChat) {
+              const { sendTelegramMessage } = await import('../notifications/telegram.js');
+              await sendTelegramMessage(tgToken, tgChat, { title: '⚠️ HustleBot', description: msg });
+            }
+          };
+          const result = await submitProposal(entry, tgNotify);
           advanceGig(entry.id, States.SUBMITTED);
 
           await notify('PROPOSAL_SUBMITTED', {

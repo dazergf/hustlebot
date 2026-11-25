@@ -13,7 +13,7 @@
     "scan": "node src/index.js scan",
     "propose": "node src/index.js propose",
     "status": "node src/index.js status",
-    "test": "node --test tests/"
+    "test": "node --test tests/**/*.test.js"
   },
   "keywords": [
     "ai",
@@ -43,7 +43,7 @@
     "node-schedule": "^2.1.1",
     "open": "^10.1.0",
     "ora": "^8.0.1",
-    "puppeteer-core": "^24.39.1",
+    "playwright": "^1.65.1",
     "yaml": "^2.4.0"
   },
   "engines": {

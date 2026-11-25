@@ -1,15 +1,16 @@
-import { spawn } from 'child_process';
-import { existsSync, mkdirSync, writeFileSync } from 'fs';
+import fs from 'fs';
+import path from 'path';
 import { join } from 'path';
 import { log, error as logError, logDelivery } from '../utils/logger.js';
 import { generateDeliveryPlan } from '../engines/ai.js';
 import { advanceGig, States } from './pipeline.js';
 import { notify } from '../notifications/notify.js';
+import { kiloChat, extractJson } from '../engines/kilo-client.js';
 
 /**
  * Run full delivery for a won gig using the Worker Agent system.
  * Routes gig to the correct specialized agent (WebAgent, BotAgent, etc.)
- * Falls back to legacy Claude Code spawn if agent system fails.
+ * Falls back to legacy Kilo-based delivery if agent system fails.
  */
 export async function runDelivery(gigEntry, profile) {
   const { gig, id } = gigEntry;
@@ -68,7 +69,9 @@ export async function runDelivery(gigEntry, profile) {
 }
 
 /**
- * Legacy delivery — direct Claude Code spawn without specialized agents.
+ * Legacy delivery — Kilo Gateway API-based, no specialized agents.
+ * Generates a plan, then builds each phase by asking the model to emit
+ * file contents as JSON, which are written to disk.
  */
 async function runLegacyDelivery(gigEntry, profile) {
   const { gig, id } = gigEntry;
@@ -87,14 +90,14 @@ async function runLegacyDelivery(gigEntry, profile) {
   const projectName = plan.project_name || slug;
   const projectDir = join(process.cwd(), projectName);
 
-  if (!existsSync(projectDir)) {
-    mkdirSync(projectDir, { recursive: true });
+  if (!fs.existsSync(projectDir)) {
+    fs.mkdirSync(projectDir, { recursive: true });
   }
 
-  writeFileSync(join(projectDir, 'CLAUDE.md'), `# ${projectName}\n\n## Project Context\n${plan.summary}\n\n## Tech Stack\n${(plan.tech_stack || []).map(t => `- ${t}`).join('\n')}\n\n## Phases\n${(plan.phases || []).map((p, i) => `### Phase ${i + 1}: ${p.name}\n${(p.tasks || []).map(t => `- [ ] ${t}`).join('\n')}\nDeliverables: ${(p.deliverables || []).join(', ')}`).join('\n\n')}\n\n## Rules\n- Write clean, well-documented code\n- Include error handling\n- Write tests for critical paths\n`);
-
-  writeFileSync(join(projectDir, 'plan.json'), JSON.stringify(plan, null, 2));
-  writeFileSync(join(projectDir, '.gitignore'), 'node_modules/\n.env\n*.log\ndist/\n');
+  const claudeMd = `# ${projectName}\n\n## Project Context\n${plan.summary}\n\n## Tech Stack\n${(plan.tech_stack || []).map(t => `- ${t}`).join('\n')}\n\n## Phases\n${(plan.phases || []).map((p, i) => `### Phase ${i + 1}: ${p.name}\n${(p.tasks || []).map(t => `- [ ] ${t}`).join('\n')}\nDeliverables: ${(p.deliverables || []).join(', ')}`).join('\n\n')}\n\n## Rules\n- Write clean, well-documented code\n- Include error handling\n- Write tests for critical paths\n`;
+  fs.writeFileSync(join(projectDir, 'CLAUDE.md'), claudeMd);
+  fs.writeFileSync(join(projectDir, 'plan.json'), JSON.stringify(plan, null, 2));
+  fs.writeFileSync(join(projectDir, '.gitignore'), 'node_modules/\n.env\n*.log\ndist/\n');
 
   advanceGig(id, States.DELIVERING, { deliveryPlan: plan, projectDir });
 
@@ -107,13 +110,40 @@ async function runLegacyDelivery(gigEntry, profile) {
       `You are delivering Phase ${i + 1} of ${phases.length}: "${phase.name}"`,
       `Project: ${plan.summary}`,
       `Tech Stack: ${(plan.tech_stack || []).join(', ')}`,
-      '', 'Tasks to complete:',
+      '',
+      'Tasks to complete:',
       ...(phase.tasks || []).map((t, j) => `${j + 1}. ${t}`),
-      '', 'Read CLAUDE.md for full context. Complete all tasks.',
+      '',
+      'Deliverables expected:',
+      ...(phase.deliverables || []).map(d => `- ${d}`),
+      '',
+      'Read the project context above. Complete all tasks for this phase.',
+      'Return ONLY a JSON object listing the files to create/modify:',
+      '{"files": [{"path": "relative/path.ext", "content": "<full file contents>"}]}',
+      'No markdown fences, no explanations — JSON only.',
     ].join('\n');
 
     try {
-      const output = await runClaudeHeadless(prompt, projectDir);
+      const { content } = await kiloChat([
+        {
+          role: 'system',
+          content: 'You are a senior developer delivering a freelance project phase. Output ONLY valid JSON with a "files" array. Each file has "path" and "content". No markdown fences.',
+        },
+        { role: 'user', content: prompt },
+      ], { task: 'delivery', temperature: 0.3, max_tokens: 4000 });
+
+      const parsed = extractJson(content);
+      const files = parsed?.files || [];
+      for (const file of files) {
+        if (!file?.path || typeof file.content !== 'string') continue;
+        const filePath = join(projectDir, file.path);
+        const fileDir = path.dirname(filePath);
+        if (!fs.existsSync(fileDir)) {
+          fs.mkdirSync(fileDir, { recursive: true });
+        }
+        fs.writeFileSync(filePath, file.content);
+        logDelivery(projectName, `  wrote ${file.path} (${file.content.split('\\n').length} lines)`);
+      }
       logDelivery(projectName, `Phase ${i + 1} complete.`);
     } catch (err) {
       logError(`[DELIVERY] Phase ${i + 1} failed: ${err.message}`);
@@ -124,41 +154,4 @@ async function runLegacyDelivery(gigEntry, profile) {
   advanceGig(id, States.DELIVERED, { projectDir });
   await notify('DELIVERY_DONE', { projectName, projectDir });
   log(`[DELIVERY] Complete: ${projectName}`);
-}
-
-/**
- * Invoke Claude Code in headless mode.
- */
-function runClaudeHeadless(prompt, cwd) {
-  return new Promise((resolve, reject) => {
-    const args = [
-      '-p', prompt,
-      '--allowedTools', 'Edit,Write,Bash(npm*),Bash(npx*),Bash(git*),Bash(node*),Bash(mkdir*)',
-    ];
-
-    const proc = spawn('claude', args, {
-      cwd,
-      shell: true,
-      stdio: ['pipe', 'pipe', 'pipe'],
-      timeout: 10 * 60 * 1000, // 10 min per phase
-    });
-
-    let stdout = '';
-    let stderr = '';
-
-    proc.stdout.on('data', (data) => { stdout += data.toString(); });
-    proc.stderr.on('data', (data) => { stderr += data.toString(); });
-
-    proc.on('close', (code) => {
-      if (code === 0) {
-        resolve(stdout);
-      } else {
-        reject(new Error(`Claude Code exited with code ${code}: ${stderr.substring(0, 500)}`));
-      }
-    });
-
-    proc.on('error', (err) => {
-      reject(new Error(`Failed to spawn Claude Code: ${err.message}. Is 'claude' installed?`));
-    });
-  });
 }

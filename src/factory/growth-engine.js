@@ -5,11 +5,11 @@
  * to drive traffic and sales to deployed products.
  */
 
-import { spawn } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import { updateProduct, loadCatalog } from './product-catalog.js';
 import { getConfigDir } from '../utils/config.js';
+import { kiloChat, extractJson } from '../engines/kilo-client.js';
 
 const GROWTH_CONFIG_FILE = () => path.join(getConfigDir(), 'growth-config.json');
 
@@ -37,7 +37,7 @@ export function saveGrowthConfig(config) {
 }
 
 /**
- * Generate marketing copy for a product using Claude Code
+ * Generate marketing copy for a product using Kilo Gateway
  */
 export async function generateMarketingCopy(product) {
   const prompt = `Generate marketing copy for this digital product. Return JSON only.
@@ -70,32 +70,21 @@ Rules:
 - For Twitter, use relevant hashtags (max 2)
 - For Reddit, provide genuine value — don't just promote`;
 
-  return new Promise((resolve) => {
-    const proc = spawn('claude', [
-      '-p', prompt,
-      '--output-format', 'text',
-    ], {
-      shell: true,
-      timeout: 60000,
-    });
+  try {
+    const { content } = await kiloChat([
+      {
+        role: 'system',
+        content: 'You generate marketing copy for digital products. Output ONLY valid JSON, no markdown fences.',
+      },
+      { role: 'user', content: prompt },
+    ], { task: 'marketing', temperature: 0.7, max_tokens: 1500 });
 
-    let output = '';
-    proc.stdout?.on('data', (d) => { output += d.toString(); });
-    proc.on('close', () => {
-      try {
-        // Extract JSON from output
-        const jsonMatch = output.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          resolve(JSON.parse(jsonMatch[0]));
-        } else {
-          resolve(null);
-        }
-      } catch {
-        resolve(null);
-      }
-    });
-    proc.on('error', () => resolve(null));
-  });
+    const parsed = extractJson(content);
+    if (parsed) return parsed;
+  } catch (e) {
+    // ignore and fall through
+  }
+  return null;
 }
 
 /**

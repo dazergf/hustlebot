@@ -1,4 +1,5 @@
-import { launchBrowser, getPage, takeScreenshot, isLoggedIn, waitForLogin, closeBrowser } from './chrome.js';
+import { launchBrowser, takeScreenshot } from './playwright-manager.js';
+import { ensureLoggedIn } from './auto-login.js';
 import { log, error as logError } from '../utils/logger.js';
 import { notify } from '../notifications/notify.js';
 
@@ -6,29 +7,33 @@ import { notify } from '../notifications/notify.js';
  * Submit a proposal on Upwork for a given gig.
  * Returns { success, method, screenshotPath, error }
  */
-export async function submitUpworkProposal(gig, proposalText, bidAmount) {
+export async function submitUpworkProposal(gig, proposalText, bidAmount, notifyFn = null) {
+  let context = null;
   let page = null;
 
   try {
     log(`[UPWORK] Submitting proposal for: ${gig.title}`);
 
-    page = await getPage(null);
+    const launched = await launchBrowser({ headless: false });
+    context = launched.context;
+    page = launched.page;
 
-    // Check if logged into Upwork
-    const loggedIn = await isLoggedIn(page, 'upwork');
-    if (!loggedIn) {
-      log('[UPWORK] Not logged in — need manual login first');
+    // Ensure session (persistent or auto-login)
+    const auth = await ensureLoggedIn(page, 'upwork', notifyFn);
+    if (!auth.success) {
+      warn('[UPWORK] Not logged in — falling back to clipboard');
       return {
         success: false,
         method: 'needs_login',
-        error: 'Not logged into Upwork. Run hustlebot auth upwork to log in.',
+        error: auth.error,
       };
     }
+    log(`[UPWORK] Session ready via ${auth.method}`);
 
     // Navigate to the job page
     const jobUrl = gig.url || `https://www.upwork.com/jobs/${gig.id}`;
     log(`[UPWORK] Navigating to: ${jobUrl}`);
-    await page.goto(jobUrl, { waitUntil: 'networkidle2', timeout: 30000 });
+    await page.goto(jobUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
     // Wait a bit for dynamic content
     await new Promise(r => setTimeout(r, 2000));
@@ -51,7 +56,7 @@ export async function submitUpworkProposal(gig, proposalText, bidAmount) {
     if (!applyButton) {
       // Try direct proposal URL
       const proposalUrl = jobUrl.replace('/jobs/', '/nx/proposals/job/') + '/apply';
-      await page.goto(proposalUrl, { waitUntil: 'networkidle2', timeout: 20000 });
+      await page.goto(proposalUrl, { waitUntil: 'domcontentloaded', timeout: 20000 });
       await new Promise(r => setTimeout(r, 2000));
     }
 
@@ -171,7 +176,7 @@ export async function submitUpworkProposal(gig, proposalText, bidAmount) {
       });
     }
 
-    await page.close();
+    await context.close();
 
     return {
       success: isSuccess,
@@ -185,7 +190,7 @@ export async function submitUpworkProposal(gig, proposalText, bidAmount) {
     if (page) {
       try {
         const errorScreenshot = await takeScreenshot(page, 'upwork-error');
-        await page.close();
+        await context.close();
         return { success: false, method: 'browser', screenshotPath: errorScreenshot, error: err.message };
       } catch {}
     }
@@ -200,21 +205,35 @@ export async function submitUpworkProposal(gig, proposalText, bidAmount) {
 export async function setupUpworkSession() {
   log('[UPWORK] Starting login session setup...');
 
-  // Launch in visible mode
-  const page = await getPage(null);
-  const browser = page.browser();
+  const { context, page } = await launchBrowser({ headless: false });
 
   // Check if already logged in
   const loggedIn = await isLoggedIn(page, 'upwork');
   if (loggedIn) {
     log('[UPWORK] Already logged in!');
-    await page.close();
+    await context.close();
     return { success: true, message: 'Already logged into Upwork' };
   }
 
-  // Navigate to login and wait for user
-  await waitForLogin(page, 'upwork');
-  await page.close();
+  // 1. Tentative automatique avec credentials .env
+  const auto = await loginWithCredentials(page, {
+    email: process.env.UPWORK_EMAIL,
+    password: process.env.UPWORK_PASSWORD,
+    securityAnswer: process.env.UPWORK_SECURITY_ANSWER,
+    platform: 'upwork',
+  });
 
-  return { success: true, message: 'Upwork session saved' };
+  if (auto.success) {
+    log('[UPWORK] Auto-login successful — session saved');
+    await context.close();
+    return { success: true, message: 'Upwork session saved (auto-login)' };
+  }
+
+  log(`[UPWORK] Auto-login failed: ${auto.error}. Falling back to manual login.`);
+
+  // 2. Dernier recours : login manuel
+  await waitForLogin(page, 'upwork');
+  await context.close();
+
+  return { success: true, message: 'Upwork session saved (manual login)' };
 }

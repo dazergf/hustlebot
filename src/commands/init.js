@@ -2,28 +2,46 @@ import inquirer from 'inquirer';
 import chalk from 'chalk';
 import ora from 'ora';
 import boxen from 'boxen';
-import { saveProfile, setApiKey, getApiKey, HUSTLEBOT_DIR } from '../utils/config.js';
+import { saveProfile, setApiKey, getApiKey, setKiloApiKey, getKiloApiKey, store, HUSTLEBOT_DIR } from '../utils/config.js';
 
 export async function initProfile() {
   console.log(chalk.hex('#FF6B00')('\n  🤖 Let\'s set up your HustleBot profile\n'));
   console.log(chalk.gray('  This takes ~3 minutes. Your answers train the AI to find\n  gigs that match YOU and write proposals in YOUR voice.\n'));
 
-  // Step 1: API Key
-  const existingKey = getApiKey();
-  let apiKey = existingKey;
+  // Step 1: Kilo API Key (primary — free models via Kilo Gateway)
+  const existingKiloKey = getKiloApiKey();
+  let kiloApiKey = existingKiloKey;
 
-  if (!existingKey) {
+  if (!existingKiloKey) {
     const { key } = await inquirer.prompt([{
       type: 'password',
       name: 'key',
-      message: chalk.white('Anthropic API key') + chalk.gray(' (get one at console.anthropic.com):'),
-      validate: (v) => v.length > 10 ? true : 'API key looks too short'
+      message: chalk.white('Kilo API key') + chalk.gray(' (free models via kilo.ai — required for AI features):'),
+      validate: (v) => v.trim().length > 10 ? true : 'API key looks too short (or set KILO_API_KEY env var)'
     }]);
-    apiKey = key;
-    setApiKey(apiKey);
-    console.log(chalk.green('  ✓ API key saved\n'));
+    kiloApiKey = key.trim();
+    setKiloApiKey(kiloApiKey);
+    console.log(chalk.green('  ✓ Kilo API key saved\n'));
   } else {
-    console.log(chalk.green('  ✓ API key already configured\n'));
+    console.log(chalk.green('  ✓ Kilo API key already configured\n'));
+  }
+
+  // Step 1b: Anthropic API key (optional legacy fallback)
+  const storedAnthropic = store.get('apiKey');
+  if (storedAnthropic) {
+    console.log(chalk.green('  ✓ Anthropic API key already configured\n'));
+  } else {
+    const { key } = await inquirer.prompt([{
+      type: 'password',
+      name: 'key',
+      message: chalk.white('Anthropic API key') + chalk.gray(' (optional legacy fallback — press Enter to skip):'),
+    }]);
+    if (key && key.trim().length > 10) {
+      setApiKey(key.trim());
+      console.log(chalk.green('  ✓ Anthropic API key saved\n'));
+    } else {
+      console.log(chalk.gray('  ⏭ Skipped — Kilo is primary\n'));
+    }
   }
 
   // Step 2: Identity
@@ -102,6 +120,7 @@ export async function initProfile() {
         { name: 'Twitter/X (people asking for help)', value: 'twitter', checked: true },
         { name: 'HackerNews (Who\'s Hiring)', value: 'hackernews', checked: true },
         { name: 'Freelancer.com', value: 'freelancer', checked: false },
+        { name: 'Django Community Jobs', value: 'django', checked: false },
         { name: 'LinkedIn', value: 'linkedin', checked: false },
       ]
     },
@@ -143,6 +162,27 @@ export async function initProfile() {
 
   const keywords = keywordsRaw.split(',').map(s => s.trim()).filter(Boolean);
 
+  // Step 7: Languages
+  console.log(chalk.hex('#FF6B00')('\n  ── LANGUAGES ──'));
+  console.log(chalk.gray('  Languages you speak and your level in each.\n'));
+
+  const { preferredLang } = await inquirer.prompt([{
+    type: 'input',
+    name: 'preferredLang',
+    message: chalk.white('Preferred / primary language') + chalk.gray(' (e.g. "French"):'),
+    default: 'English',
+    validate: (v) => v.trim().length > 0 ? true : 'Language required'
+  }]);
+
+  const { langsRaw } = await inquirer.prompt([{
+    type: 'input',
+    name: 'langsRaw',
+    message: chalk.white('Languages you speak') + chalk.gray(' (comma-separated with level):\n  e.g. "French (native), English (fluent), Spanish (intermediate)"\n '),
+    validate: (v) => v.split(',').filter(s => s.trim()).length >= 1 ? true : 'List at least 1 language'
+  }]);
+
+  const languages = langsRaw.split(',').map(s => s.trim()).filter(Boolean);
+
   // Build profile
   const profile = {
     name: identity.name,
@@ -157,6 +197,8 @@ export async function initProfile() {
     gig_types: prefs.gig_types,
     achievements,
     search_keywords: keywords,
+    preferred_language: preferredLang.trim(),
+    languages,
     sample_proposals: [],
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
@@ -171,11 +213,13 @@ export async function initProfile() {
   console.log('\n' + boxen(
     chalk.hex('#FF6B00')('🚀 HustleBot is ready to hustle!\n\n') +
     chalk.white(`  ${profile.name}`) + chalk.gray(` — ${profile.title}\n`) +
-    chalk.gray(`  ${skills.length} skills • $${profile.rate_floor}/hr min • ${prefs.platforms.length} platforms\n\n`) +
+    chalk.gray(`  ${skills.length} skills • $${profile.rate_floor}/hr min • ${prefs.platforms.length} platforms\n`) +
+    chalk.gray(`  Languages: ${preferredLang} (${languages.join(', ')})\n\n`) +
     chalk.white('  Next steps:\n') +
-    chalk.gray('  1. ') + chalk.white('hustlebot scan') + chalk.gray('     → Find matching gigs\n') +
-    chalk.gray('  2. ') + chalk.white('hustlebot propose') + chalk.gray('  → Write a proposal\n') +
-    chalk.gray('  3. ') + chalk.white('hustlebot status') + chalk.gray('   → See your dashboard'),
+    chalk.gray('  1. ') + chalk.white('hustlebot auth <platform>') + chalk.gray('  → Save login session (upwork, freelancer, twitter, hackernews, fiverr, django)\n') +
+    chalk.gray('  2. ') + chalk.white('hustlebot scan') + chalk.gray('     → Find matching gigs\n') +
+    chalk.gray('  3. ') + chalk.white('hustlebot propose') + chalk.gray('  → Write a proposal\n') +
+    chalk.gray('  4. ') + chalk.white('hustlebot status') + chalk.gray('   → See your dashboard'),
     { padding: 1, borderColor: '#FF6B00', borderStyle: 'round' }
   ));
 }
