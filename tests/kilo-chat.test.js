@@ -3,16 +3,24 @@ import assert from 'node:assert/strict';
 
 test('kiloChat: throws without API key', async () => {
   const orig = process.env.KILO_API_KEY;
+  const { setKiloApiKey } = await import('../src/utils/config.js');
+  setKiloApiKey(null);
   delete process.env.KILO_API_KEY;
-  // Also ensure store doesn't have it by not setting
+  // Prevent .env reload by overriding
+  const origEnv = { ...process.env };
+  // Clear any KILO key that .env may have set
+  for (const k of Object.keys(process.env)) {
+    if (k === 'KILO_API_KEY') delete process.env[k];
+  }
   const { kiloChat } = await import('../src/engines/kilo-client.js');
   try {
     await kiloChat([{ role: 'user', content: 'hi' }]);
     assert.fail('should have thrown');
   } catch (err) {
-    assert.ok(err.message.includes('No Kilo API key'));
+    assert.ok(err.message.includes('No Kilo API key'), `Expected 'No Kilo API key' but got: ${err.message}`);
   } finally {
     if (orig) process.env.KILO_API_KEY = orig;
+    setKiloApiKey(orig || null);
   }
 });
 
