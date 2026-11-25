@@ -1,0 +1,19 @@
+[Unit]
+Description=HustleBot Autopilot Daemon
+After=network.target
+
+[Service]
+Type=simple
+User=YOUR_USERNAME
+WorkingDirectory=/home/YOUR_USERNAME/hustlebot
+Environment="NODE_ENV=production"
+Environment="HUSTLEBOT_HEADLESS=true"
+EnvironmentFile=/home/YOUR_USERNAME/hustlebot/.env
+ExecStart=/usr/bin/xvfb-run --auto-servernum --server-args="-screen 0 1280x800x24" /usr/bin/node src/index.js autopilot start
+Restart=on-failure
+RestartSec=30
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
