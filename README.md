@@ -2,77 +2,39 @@
 
 ### Autonomous AI Job & Opportunity Hunter — finds gigs, writes proposals, submits them, delivers work, and tracks payments. All while you sleep.
 
-> **An extensively enhanced fork of [Teja-2k/HustleBot](https://github.com/Teja-2k/hustlebot), featuring substantial improvements in autonomous opportunity discovery, multi-source scraping, AI-powered job matching, browser automation, CAPTCHA handling, and production readiness.**
+> **A personalized fork of [Teja-2k/HustleBot](https://github.com/Teja-2k/hustlebot) — customized for my own workflow with a few extra automations and improvements.**
 
 ---
 
-## 📌 Origin & Improvements
+## 📌 Origin & Personalization
 
-**Origin:** Derived from [Teja-2k/HustleBot](https://github.com/Teja-2k/hustlebot) (MIT License). Original copyright and license notices are preserved.
+**Origin:** Based on [Teja-2k/HustleBot](https://github.com/Teja-2k/hustlebot) (MIT License). Original copyright and license notices are preserved.
 
-**Key improvements over the original:**
+**What I changed for my own use:**
 
-| Area | Original | This Fork |
-|------|----------|-----------|
-| **LLM Provider** | Anthropic/Claude SDK (`spawn('claude')`) | **Kilo Gateway** (OpenAI-compatible, all free models, task-based routing) |
-| **Browser Automation** | Puppeteer (Upwork/Freelancer only) | **Playwright** (persistent Chromium profile, all 5 platforms) |
-| **CAPTCHA Handling** | None | **NopeCHA** extension + Telegram alert fallback on failure |
-| **Auth** | Upwork/Freelancer only | **All 5 platforms** (upwork, freelancer, twitter, hackernews, fiverr) with auto-login + manual fallback |
-| **Session Management** | Per-platform sessions | **Shared persistent profile** (`~/.hustlebot/browser-profile`) |
-| **Notifications** | Discord + Telegram | Discord + Telegram (including CAPTCHA/session failure alerts) |
-| **Production** | No tests, no health check | **47 regression tests**, health check, retry/backoff, .env auto-load, headless mode, PRODUCTION.md |
-| **Scoring** | Claude-based | Kilo-based with keyword fallback |
-| **HN Scanner** | Basic | Filters service-offering posts, decodes HTML entities |
-| **Languages** | Not tracked | `preferred_language` + `languages` with levels, injected into AI prompts |
-| **Model Routing** | Single model | Task-based routing (scoring→auto, proposal→beam, clientReply→lfm) |
+- Switched LLM provider from Anthropic/Claude to **Kilo Gateway** (free models, task-based routing)
+- Added **Playwright** browser automation for Twitter/X, Hacker News, and Fiverr (original only had Upwork/Freelancer via Puppeteer)
+- Integrated **NopeCHA** for CAPTCHA auto-resolution with Telegram alert fallback
+- Unified auth for all platforms (auto-login from `.env` + manual fallback)
+- Added Django Community Jobs as a 6th platform (RSS scanner)
+- Added preferred language + languages to profile (injected into AI prompts)
+- Added regression tests, health check, retry/backoff, .env auto-loading
+- HN scanner now filters out "seeking work" posts
 
-**Skills demonstrated:** JavaScript/Node.js, AI/LLM integration, Playwright browser automation, REST API consumption, daemon/scheduling, notification systems, testing, production deployment.
+Nothing groundbreaking — just adapted it to fit my needs and automated a few more things along the way.
 
 ---
 
-## 🧑‍💻 Author Competencies
+## 📋 What's Inside
 
-This project showcases expertise across the full stack of modern software engineering and AI automation:
-
-### Languages & Frameworks
-- **JavaScript / Node.js** (ES modules, async/await, fetch, child processes)
-- **Python** (scraping, data processing, API integration)
-- **YAML / JSON** (configuration, data persistence)
-- **HTML/CSS** (dashboard UI, single-page applications)
-
-### AI & Machine Learning
-- **LLM Integration** (Kilo Gateway, OpenAI-compatible APIs, prompt engineering)
-- **AI Agent Architecture** (autonomous agents, task routing, multi-model orchestration)
-- **Natural Language Processing** (proposal generation, message classification, intent detection)
-
-### Browser Automation & Scraping
-- **Playwright** (persistent contexts, extension loading, headless/headed modes)
-- **Web Scraping** (Cheerio, RSS feeds, HTML parsing, entity decoding)
-- **CAPTCHA Solving** (NopeCHA integration, fallback strategies)
-- **Anti-detection** (persistent profiles, human-like delays)
-
-### System Design & Architecture
-- **Daemon/Scheduling** (node-schedule, cron, graceful shutdown)
-- **Pipeline State Machine** (DISCOVERED → PAID lifecycle tracking)
-- **Notification Systems** (Discord webhooks, Telegram Bot API)
-- **REST API Consumption** (Kilo, Twitter, Freelancer, Django jobs RSS)
-
-### DevOps & Production
-- **Testing** (node:test, 47+ regression tests, mocking)
-- **Health Checks** (production readiness validation)
-- **Retry/Backoff** (exponential backoff, rate limit handling)
-- **Environment Management** (.env loading, config persistence)
-- **Graceful Degradation** (fallback strategies, clipboard+URL)
-
-### Platforms Supported
-| Platform | Type | Scanner | Auto-Submit | Auth |
-|----------|------|---------|-------------|------|
-| Upwork | Freelance marketplace | ✅ Web scraping | ✅ Playwright | Auto + Manual |
-| Freelancer.com | Freelance marketplace | ✅ Public API | ✅ Playwright | Auto + Manual |
-| Twitter/X | Social media | ✅ Search API | ✅ Playwright DM | Auto + Manual |
-| Hacker News | Tech community | ✅ RSS + filtering | ✅ Playwright comment | Auto + Manual |
-| Fiverr | Freelance marketplace | ✅ Demand signals | ✅ Playwright message | Auto + Manual |
-| Django Community | Job board | ✅ RSS feed | Clipboard + URL | No auth needed |
+- **6 platform scanners** (Upwork, Freelancer, Twitter/X, Hacker News, Fiverr, Django Community Jobs)
+- **AI scoring & proposal generation** via Kilo Gateway (free models)
+- **Playwright automation** for auto-submission with persistent sessions
+- **NopeCHA** CAPTCHA solving with Telegram alert fallback
+- **Autopilot daemon** with 3 autonomy levels
+- **Earnings tracking** and project management
+- **Web dashboard** with analytics
+- **47 regression tests** + health check
 
 ---
 
