@@ -175,6 +175,8 @@ hustlebot dashboard
 | `hustlebot auth twitter` (or `x`) | Set up browser session for Twitter/X DM automation |
 | `hustlebot auth hackernews` (or `hn`) | Set up browser session for Hacker News comments |
 | `hustlebot auth fiverr` | Set up browser session for Fiverr messages |
+| `hustlebot auth google` | Sign in to Google once (session saved for platform OAuth) |
+| `hustlebot auth <platform> --google` | Reuse the Google session to sign in to a platform |
 | `hustlebot auth django` | No auth needed (public RSS feed) |
 | `hustlebot health` | Check production readiness (API keys, browser, extensions) |
 

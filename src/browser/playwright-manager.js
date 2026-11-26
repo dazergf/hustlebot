@@ -21,17 +21,44 @@ export async function launchBrowser(options = {}) {
     fs.mkdirSync(PROFILE_DIR, { recursive: true });
   }
 
-  const args = [];
+  // Google blocks Playwright's bundled Chromium ("This browser or app may not
+  // be secure"). Prefer the real Chrome channel when available, and remove the
+  // automation flag that Google detects. Fall back to bundled Chromium.
+  const channel = options.channel || process.env.HUSTLEBOT_BROWSER_CHANNEL || 'chrome';
+
+  const args = ['--disable-blink-features=AutomationControlled', '--no-first-run', '--no-default-browser-check'];
   if (fs.existsSync(EXTENSION_DIR)) {
     args.push(`--disable-extensions-except=${EXTENSION_DIR}`);
     args.push(`--load-extension=${EXTENSION_DIR}`);
   }
 
-  const context = await chromium.launchPersistentContext(PROFILE_DIR, {
+  const launchOptions = {
     headless,
     args,
     viewport: { width: 1280, height: 800 },
     locale: 'en-US',
+    ignoreDefaultArgs: ['--enable-automation'],
+  };
+
+  let context;
+  try {
+    context = await chromium.launchPersistentContext(PROFILE_DIR, {
+      ...launchOptions,
+      ...(channel ? { channel } : {}),
+    });
+  } catch (err) {
+    if (!channel) throw err;
+    // Chrome not installed (e.g. minimal VPS) — use Playwright Chromium.
+    context = await chromium.launchPersistentContext(PROFILE_DIR, launchOptions);
+  }
+
+  // Light stealth: hide the most obvious automation fingerprints. This helps
+  // with Google's "This browser or app may not be secure" check.
+  await context.addInitScript(() => {
+    Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+    if (!window.chrome) window.chrome = { runtime: {} };
+    Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+    Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
   });
 
   const page = await context.newPage();
@@ -115,6 +142,22 @@ export async function isLoggedIn(page, platform) {
       });
       const url = page.url();
       return !url.includes('/login') && !url.includes('/join');
+    },
+    google: async () => {
+      // Cookie check first: avoids a navigation and works even if Google
+      // redirects to an account chooser page.
+      const cookies = await page.context().cookies('https://accounts.google.com');
+      const hasSession = cookies.some(c =>
+        ['SID', 'SAPISID', '__Secure-1PSID', '__Secure-3PSID'].includes(c.name)
+      );
+      if (hasSession) return true;
+
+      await page.goto('https://myaccount.google.com/', {
+        waitUntil: 'domcontentloaded',
+        timeout: 20000,
+      });
+      const url = page.url();
+      return url.includes('myaccount.google.com') && !url.includes('signin');
     },
   };
   try {
