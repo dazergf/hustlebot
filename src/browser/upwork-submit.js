@@ -1,5 +1,5 @@
-import { launchBrowser, takeScreenshot } from './playwright-manager.js';
-import { ensureLoggedIn } from './auto-login.js';
+import { launchBrowser, takeScreenshot, isLoggedIn, waitForLogin } from './playwright-manager.js';
+import { ensureLoggedIn, loginWithCredentials } from './auto-login.js';
 import { log, error as logError } from '../utils/logger.js';
 import { notify } from '../notifications/notify.js';
 

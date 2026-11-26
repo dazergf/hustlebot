@@ -1,6 +1,6 @@
-import { launchBrowser } from './playwright-manager.js';
+import { launchBrowser, isLoggedIn, waitForLogin } from './playwright-manager.js';
 import { handleCaptcha } from './captcha-manager.js';
-import { ensureLoggedIn } from './auto-login.js';
+import { ensureLoggedIn, loginWithCredentials } from './auto-login.js';
 import { log, warn } from '../utils/logger.js';
 
 export async function submitTwitterProposal(gig, proposal, notifyFn) {
