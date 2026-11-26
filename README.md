@@ -136,6 +136,46 @@ hustlebot dashboard
 
 ---
 
+## Environment variables
+
+HustleBot loads `.env` automatically from the current working directory.
+
+```env
+# Required
+KILO_API_KEY=sk-kilo-xxxxx
+
+# Optional scanning
+TWITTER_BEARER_TOKEN=
+APIFY_API_KEY=
+
+# Platform auto-login (optional)
+UPWORK_EMAIL=
+UPWORK_PASSWORD=
+UPWORK_SECURITY_ANSWER=
+FREELANCER_EMAIL=
+FREELANCER_PASSWORD=
+TWITTER_EMAIL=
+TWITTER_PASSWORD=
+HACKERNEWS_USERNAME=
+HACKERNEWS_PASSWORD=
+FIVERR_EMAIL=
+FIVERR_PASSWORD=
+
+# Google auto-login (optional, less recommended than `hustlebot auth google`)
+GOOGLE_EMAIL=
+GOOGLE_PASSWORD=
+
+# Browser
+HUSTLEBOT_BROWSER_CHANNEL=chrome
+HUSTLEBOT_HEADLESS=false
+HUSTLEBOT_DIR=~/.hustlebot
+```
+
+Notes:
+- `HUSTLEBOT_BROWSER_CHANNEL=chrome` is recommended for Google sign-in.
+- Storing a Google password in `.env` is sensitive; prefer the manual `hustlebot auth google` flow.
+- `.env` is gitignored and should never be committed.
+
 ## All Commands
 
 ### Core Workflow
@@ -177,7 +217,11 @@ hustlebot dashboard
 | `hustlebot auth fiverr` | Set up browser session for Fiverr messages |
 | `hustlebot auth google` | Sign in to Google once (session saved for platform OAuth) |
 | `hustlebot auth <platform> --google` | Reuse the Google session to sign in to a platform |
+| `hustlebot auth status` | Show which platforms have a valid persistent session |
 | `hustlebot auth django` | No auth needed (public RSS feed) |
+
+> `hustlebot auth <platform> --google` requires a prior `hustlebot auth google` session.
+> Use `hustlebot auth status` to check missing sessions before starting the daemon.
 | `hustlebot health` | Check production readiness (API keys, browser, extensions) |
 
 ---
